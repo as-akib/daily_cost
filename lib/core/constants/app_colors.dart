@@ -62,21 +62,21 @@ class AppColors {
   static const Color nearBudget = Color(0xFFF59E0B); // Golden Amber
   static const Color overBudget = Color(0xFFEF4444); // Sunset Crimson
 
-  // Surface & Neutral - Light Mode
-  static const Color backgroundLight = Color(0xFFF8FAFC);
+  // Surface & Neutral - Light Mode (Clean, soft mint tint)
+  static const Color backgroundLight = Color(0xFFF4FAF9);
   static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color surfaceElevatedLight = Color(0xFFF1F5F9);
+  static const Color surfaceElevatedLight = Color(0xFFE8F6F4);
   static const Color textPrimaryLight = Color(0xFF0F172A);
-  static const Color textSecondaryLight = Color(0xFF64748B);
-  static const Color borderLight = Color(0xFFE2E8F0);
+  static const Color textSecondaryLight = Color(0xFF475569);
+  static const Color borderLight = Color(0xFFD1EDE8);
 
-  // Surface & Neutral - Dark Mode (Obsidian Deep Space, crisp high contrast)
-  static const Color backgroundDark = Color(0xFF0B0F19);
-  static const Color surfaceDark = Color(0xFF151D2E);
-  static const Color surfaceElevatedDark = Color(0xFF1E293B);
-  static const Color textPrimaryDark = Color(0xFFF8FAFC);
-  static const Color textSecondaryDark = Color(0xFF94A3B8);
-  static const Color borderDark = Color(0xFF243048);
+  // Surface & Neutral - Dark Mode (Greenish Obsidian Dark vibe)
+  static const Color backgroundDark = Color(0xFF061412); // Deep forest obsidian background
+  static const Color surfaceDark = Color(0xFF0C201D); // Rich dark emerald surface
+  static const Color surfaceElevatedDark = Color(0xFF132D29); // Elevated emerald container
+  static const Color textPrimaryDark = Color(0xFFF0FDF4); // Crisp light mint text
+  static const Color textSecondaryDark = Color(0xFF94A3B8); // High contrast secondary
+  static const Color borderDark = Color(0xFF1B403B); // Refined dark emerald border
 
   // Distinct Category Accent Colors
   static const Color catFood = Color(0xFFF97316); // Bright Orange

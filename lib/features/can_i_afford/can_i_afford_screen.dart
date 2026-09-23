@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
@@ -30,16 +31,7 @@ class _CanIAffordScreenState extends ConsumerState<CanIAffordScreen> {
     super.dispose();
   }
 
-  void _evaluatePriceInput() {
-    final text = _priceCtrl.text.trim();
-    if (text.isEmpty) return;
-    final evaluated = MathExpressionEvaluator.evaluateAndFormat(text);
-    if (evaluated != text) {
-      _priceCtrl.text = evaluated;
-      _priceCtrl.selection = TextSelection.collapsed(offset: evaluated.length);
-      setState(() {});
-    }
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -162,7 +154,10 @@ class _CanIAffordScreenState extends ConsumerState<CanIAffordScreen> {
                       Expanded(
                         child: TextField(
                           controller: _priceCtrl,
-                          keyboardType: TextInputType.text,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                          ],
                           textInputAction: TextInputAction.done,
                           textAlign: TextAlign.end,
                           style: theme.textTheme.headlineMedium?.copyWith(
@@ -177,7 +172,6 @@ class _CanIAffordScreenState extends ConsumerState<CanIAffordScreen> {
                             contentPadding: EdgeInsets.zero,
                           ),
                           onChanged: (_) => setState(() {}),
-                          onSubmitted: (_) => _evaluatePriceInput(),
                         ),
                       ),
                     ],
@@ -243,7 +237,7 @@ class _CanIAffordScreenState extends ConsumerState<CanIAffordScreen> {
               Container(
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
-                  gradient: AppColors.heroGradient,
+                  color: AppColors.primary,
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(

@@ -1,9 +1,7 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/constants/app_colors.dart';
-import '../core/constants/app_constants.dart';
 import '../data/repositories/providers.dart';
 import '../features/auth/auth_screen.dart';
 import '../features/onboarding/onboarding_wizard_screen.dart';
@@ -13,7 +11,6 @@ import '../features/can_i_afford/can_i_afford_screen.dart';
 import '../features/savings_goal/savings_goal_screen.dart';
 import '../features/settings/settings_screen.dart';
 
-// Supabase Auth Changes ট্র্যাক করার জন্য লাইভ স্ট্রিম প্রোভাইডার
 final supabaseAuthStateProvider = StreamProvider<AuthState>((ref) {
   return Supabase.instance.client.auth.onAuthStateChange;
 });
@@ -23,39 +20,45 @@ class AppRouter extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // ১. সুপাবেজের লাইভ অথেনটিকেশন স্ট্রিম ওয়াচ করা
-    final authStateAsync = ref.watch(supabaseAuthStateProvider);
+    final authState = ref.watch(authStateProvider);
+    final user = authState.value;
 
-    return authStateAsync.when(
-      loading: () => const _SplashScreen(),
-      error: (err, stack) => const AuthScreen(),
-      data: (authState) {
-        final session = authState.session ?? Supabase.instance.client.auth.currentSession;
+    final sbUser = Supabase.instance.client.auth.currentUser;
+    final currentUid = user?.uid ?? sbUser?.id;
 
-        // ইউজার লগইন না থাকলে সরাসরি AuthScreen
-        if (session == null) {
-          return const AuthScreen();
-        }
+    // 1. Shuru-te jodi auth check na hoye thake
+    if (authState.isLoading && currentUid == null) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
 
-        // ২. সেশন পাওয়া গেলে প্রোফাইল স্টেট চেক
-        final profileAsync = ref.watch(currentProfileProvider);
+    // 2. Kono user login kora na thakle direct AuthScreen
+    if (user == null && sbUser == null) {
+      return const AuthScreen();
+    }
 
-        return profileAsync.when(
-          loading: () => const _SplashScreen(),
-          error: (err, stack) {
-            debugPrint('Profile fetch error: $err');
-            // প্রফাইল লোডে সমস্যা হলেও প্রথমবার অনবোর্ডিং-এ পাঠিয়ে দেবে
-            return const OnboardingWizardScreen();
-          },
-          data: (profile) {
-            if (profile == null || !profile.isOnboardingCompleted) {
-              return const OnboardingWizardScreen();
-            }
-            return const MainNavigationShell();
-          },
-        );
-      },
-    );
+    // 3. User login thakle Profile Check
+    final profileAsync = ref.watch(currentProfileProvider);
+
+    // Jodi profile peye jay ebong onboarding completed hoy -> Main App
+    if (profileAsync.hasValue) {
+      final profile = profileAsync.value;
+      if (profile != null && profile.isOnboardingCompleted) {
+        return const MainNavigationShell();
+      }
+      return const OnboardingWizardScreen();
+    }
+
+    // Error ashle ba notun account hole direct Onboarding
+    if (profileAsync.hasError) {
+      return const OnboardingWizardScreen();
+    }
+
+    // 4. Fallback: Jodi stream shurute late kore, default Onboarding
+    return const OnboardingWizardScreen();
   }
 }
 
@@ -125,138 +128,6 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             selectedIcon:
             Icon(Icons.settings_rounded, color: AppColors.primary),
             label: 'Settings',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SplashScreen extends StatelessWidget {
-  const _SplashScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: isDark
-                      ? [
-                    const Color(0xFF0B0F19),
-                    const Color(0xFF1E1B4B),
-                    const Color(0xFF0F172A),
-                  ]
-                      : [
-                    const Color(0xFFEEF2FF),
-                    const Color(0xFFF3E8FF),
-                    const Color(0xFFE0F2FE),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Center(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(32),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Container(
-                  width: 280,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 28, vertical: 36),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.08)
-                        : Colors.white.withValues(alpha: 0.65),
-                    borderRadius: BorderRadius.circular(32),
-                    border: Border.all(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.15)
-                          : Colors.white.withValues(alpha: 0.8),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(alpha: 0.35),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(22),
-                          child: Image.asset(
-                            'assets/icon/app_icon.png',
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => Container(
-                              decoration: BoxDecoration(
-                                gradient: AppColors.heroGradient,
-                                borderRadius: BorderRadius.circular(22),
-                              ),
-                              child: const Icon(
-                                Icons.account_balance_wallet_rounded,
-                                color: Colors.white,
-                                size: 44,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        AppConstants.appName,
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                          color:
-                          isDark ? Colors.white : const Color(0xFF0F172A),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        AppConstants.appTagline,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: isDark
-                              ? AppColors.textSecondaryDark
-                              : AppColors.textSecondaryLight,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                              AppColors.primaryLight),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ),
         ],
       ),

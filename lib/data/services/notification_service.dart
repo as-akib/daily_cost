@@ -16,24 +16,28 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    tz.initializeTimeZones();
+    try {
+      tz.initializeTimeZones();
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const darwinSettings = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
+      const androidSettings =
+          AndroidInitializationSettings('@mipmap/launcher_icon');
+      const darwinSettings = DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      );
 
-    const initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: darwinSettings,
-      macOS: darwinSettings,
-    );
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+        iOS: darwinSettings,
+        macOS: darwinSettings,
+      );
 
-    await _notificationsPlugin.initialize(initSettings);
-    _initialized = true;
+      await _notificationsPlugin.initialize(initSettings);
+      _initialized = true;
+    } catch (e) {
+      debugPrint('NotificationService initialization error: $e');
+    }
   }
 
   Future<bool> requestPermissions() async {
@@ -314,32 +318,37 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
-    await initialize();
+    try {
+      await initialize();
 
-    const androidDetails = AndroidNotificationDetails(
-      'dailycost_budget_alerts',
-      'Daily Budget Alerts',
-      channelDescription: 'Alerts for daily budget and spending targets',
-      importance: Importance.high,
-      priority: Priority.high,
-    );
+      const androidDetails = AndroidNotificationDetails(
+        'dailycost_budget_alerts',
+        'Daily Budget Alerts',
+        channelDescription: 'Alerts for daily budget and spending targets',
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/launcher_icon',
+      );
 
-    const darwinDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
 
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: darwinDetails,
-    );
+      const notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
 
-    await _notificationsPlugin.show(
-      id,
-      title,
-      body,
-      notificationDetails,
-    );
+      await _notificationsPlugin.show(
+        id,
+        title,
+        body,
+        notificationDetails,
+      );
+    } catch (e) {
+      debugPrint('Error showing local notification: $e');
+    }
   }
 }

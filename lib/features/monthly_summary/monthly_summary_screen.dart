@@ -172,7 +172,7 @@ class _MonthlySummaryScreenState extends ConsumerState<MonthlySummaryScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                gradient: AppColors.heroGradient,
+                color: AppColors.primary,
                 borderRadius: BorderRadius.circular(28),
                 boxShadow: [
                   BoxShadow(

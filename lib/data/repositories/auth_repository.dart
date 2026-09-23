@@ -19,4 +19,6 @@ class AuthRepository {
       authService.updateDisplayName(newName);
 
   Future<void> signOut() => authService.signOut();
+
+  Future<void> deleteAccount() => authService.deleteAccount();
 }

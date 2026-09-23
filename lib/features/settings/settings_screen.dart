@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/currency_formatter.dart';
@@ -12,6 +15,7 @@ import '../../data/models/user_profile.dart';
 import '../../data/repositories/providers.dart';
 import '../../core/utils/top_notification.dart';
 import '../monthly_summary/monthly_summary_screen.dart';
+import '../../routing/app_router.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -74,14 +78,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-
     final authState = ref.watch(authStateProvider);
     final user = authState.value;
     final profile = ref.watch(currentProfileProvider).value;
-    final baseCurrency = profile?.baseCurrency ?? 'USD';
+    final baseCurrency = profile?.baseCurrency ?? 'BDT';
     final themeMode = ref.watch(themeModeProvider);
-    final exchangeRates =
-        ref.watch(exchangeRatesProvider(baseCurrency)).value;
+    final isGuest = user == null || user.isAnonymous || user.isGoogle == false;
+
+    // Guest hole direct Database User ID, nahole Display Name
+    final String displayTitle = isGuest
+        ? (user?.uid ?? profile?.uid ?? 'guest_user')
+        : (user.displayName != null && user.displayName!.trim().isNotEmpty
+        ? user.displayName!
+        : (profile?.displayName != null && profile!.displayName!.trim().isNotEmpty
+        ? profile.displayName!
+        : (user.email?.split('@').first ?? 'Google User')));
 
     return Scaffold(
       appBar: AppBar(
@@ -90,7 +101,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
         children: [
-          // ===================== 1. ACCOUNT & UPGRADE =====================
           _buildSectionHeader('Account'),
           Card(
             child: Padding(
@@ -104,21 +114,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         backgroundColor: isDark
                             ? AppColors.primaryContainerDark
                             : AppColors.primaryContainer,
-                        backgroundImage: (user?.photoUrl != null &&
-                                user!.photoUrl!.isNotEmpty)
+                        backgroundImage: (!isGuest &&
+                            user.photoUrl != null &&
+                            user.photoUrl!.isNotEmpty)
                             ? NetworkImage(user.photoUrl!)
                             : null,
-                        child: (user?.photoUrl == null ||
-                                user!.photoUrl!.isEmpty)
+                        child: (isGuest ||
+                            user.photoUrl == null ||
+                            user.photoUrl!.isEmpty)
                             ? Icon(
-                                user?.isAnonymous == true
-                                    ? Icons.person_outline_rounded
-                                    : Icons.account_circle_rounded,
-                                color: isDark
-                                    ? AppColors.primaryLight
-                                    : AppColors.primary,
-                                size: 28,
-                              )
+                          isGuest
+                              ? Icons.person_outline_rounded
+                              : Icons.account_circle_rounded,
+                          color: isDark
+                              ? AppColors.primaryLight
+                              : AppColors.primary,
+                          size: 28,
+                        )
                             : null,
                       ),
                       const SizedBox(width: 14),
@@ -130,25 +142,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               children: [
                                 Flexible(
                                   child: Text(
-                                    user?.isAnonymous == true
-                                        ? 'Guest User'
-                                        : (user?.displayName != null &&
-                                                user!.displayName!.isNotEmpty
-                                            ? user.displayName!
-                                            : (user?.email?.split('@').first ??
-                                                'Google User')),
+                                    displayTitle,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w700,
-                                      fontSize: 16,
+                                      fontSize: 15,
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                if (user?.isAnonymous == false) ...[
+                                if (!isGuest) ...[
                                   const SizedBox(width: 6),
                                   InkWell(
                                     onTap: () => _showEditNameDialog(
-                                        context, user?.displayName),
+                                        context, user.displayName),
                                     borderRadius: BorderRadius.circular(12),
                                     child: Padding(
                                       padding: const EdgeInsets.all(4.0),
@@ -166,9 +172,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              user?.isAnonymous == true
+                              isGuest
                                   ? 'Data is stored locally on this device'
-                                  : (user?.email ?? 'Google account linked'),
+                                  : (user.email ?? 'Google account linked'),
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: isDark
                                     ? AppColors.textSecondaryDark
@@ -180,36 +186,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                   ),
-                  if (user?.isAnonymous == true) ...[
+                  if (isGuest) ...[
                     const Divider(height: 24),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                        label: const Text('Upgrade & Link with Google'),
+                        label: const Text('Sign in & Link with Google'),
                         onPressed: () => _handleUpgradeWithGoogle(context),
                       ),
+                    ),
+                  ],
+                  if (!isGuest) ...[
+                    const Divider(height: 24),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: const Icon(Icons.logout_rounded,
+                          color: AppColors.overBudget),
+                      title: const Text('Sign Out',
+                          style: TextStyle(
+                              color: AppColors.overBudget,
+                              fontWeight: FontWeight.w600)),
+                      onTap: () => _confirmSignOut(context),
                     ),
                   ],
                   const Divider(height: 24),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     dense: true,
-                    leading: const Icon(Icons.logout_rounded,
+                    leading: const Icon(Icons.delete_forever_rounded,
                         color: AppColors.overBudget),
-                    title: const Text('Sign Out',
+                    title: const Text('Delete Account',
                         style: TextStyle(
                             color: AppColors.overBudget,
                             fontWeight: FontWeight.w600)),
-                    onTap: () => _confirmSignOut(context),
+                    subtitle: const Text(
+                      'Permanently delete account & reset app memory',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    onTap: () => _confirmDeleteAccount(context),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 20),
-
-          // ===================== 2. APPEARANCE & THEME =====================
           _buildSectionHeader('Appearance'),
           Card(
             child: Padding(
@@ -223,8 +245,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         themeMode == ThemeMode.dark
                             ? Icons.dark_mode_rounded
                             : (themeMode == ThemeMode.light
-                                ? Icons.light_mode_rounded
-                                : Icons.brightness_auto_rounded),
+                            ? Icons.light_mode_rounded
+                            : Icons.brightness_auto_rounded),
                         color: isDark ? AppColors.primaryLight : AppColors.primary,
                         size: 24,
                       ),
@@ -242,8 +264,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               themeMode == ThemeMode.system
                                   ? 'Follows device system theme'
                                   : (themeMode == ThemeMode.dark
-                                      ? 'Dark mode active'
-                                      : 'Light mode active'),
+                                  ? 'Dark mode active'
+                                  : 'Light mode active'),
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: isDark
                                     ? AppColors.textSecondaryDark
@@ -289,8 +311,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 20),
-
-          // ===================== 3. BUDGET & SALARY CYCLE =====================
           _buildSectionHeader('Budget & Salary Cycle'),
           Card(
             child: Column(
@@ -301,7 +321,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   title: const Text('Monthly Income'),
                   subtitle: Text(profile != null
                       ? CurrencyFormatter.format(profile.monthlyIncome,
-                          currencyCode: baseCurrency)
+                      currencyCode: baseCurrency)
                       : '-'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => _showEditIncomeDialog(context, profile),
@@ -324,7 +344,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   title: const Text('Savings Goal'),
                   subtitle: Text(profile != null
                       ? CurrencyFormatter.format(profile.savingsGoal,
-                          currencyCode: baseCurrency)
+                      currencyCode: baseCurrency)
                       : '-'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => _showEditSavingsGoalDialog(context, profile),
@@ -366,8 +386,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 20),
-
-          // ===================== 3. CATEGORIES =====================
           _buildSectionHeader('Categories'),
           Card(
             child: ListTile(
@@ -375,14 +393,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   color: AppColors.primary),
               title: const Text('Manage Categories'),
               subtitle:
-                  const Text('Add custom categories or hide preset ones'),
+              const Text('Add custom categories or hide preset ones'),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => _showManageCategoriesDialog(context),
             ),
           ),
           const SizedBox(height: 20),
-
-          // ===================== 4. NOTIFICATIONS =====================
           _buildSectionHeader('Smart Notifications'),
           Card(
             child: SwitchListTile(
@@ -392,61 +408,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               subtitle: const Text(
                   'Daily overspend alert, 11:45 PM summary & month-end savings review'),
               onChanged: _toggleNotifications,
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // ===================== 5. CURRENCY RATES STATUS =====================
-          _buildSectionHeader('Exchange Rates'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Status: ${exchangeRates?.isOfflineFallback == true ? "Offline Fallback" : "Live (Frankfurter)"}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: exchangeRates?.isOfflineFallback == true
-                                  ? AppColors.nearBudget
-                                  : AppColors.withinBudget,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            exchangeRates != null
-                                ? 'Last updated: ${DateFormat('MMM d, h:mm a').format(exchangeRates.lastFetched)}'
-                                : 'Fetching exchange rates...',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppColors.textSecondaryLight,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_isRefreshingRates)
-                        const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2.5),
-                        )
-                      else
-                        IconButton(
-                          icon: const Icon(Icons.refresh_rounded,
-                              color: AppColors.primary),
-                          tooltip: 'Refresh Rates',
-                          onPressed: () => _refreshExchangeRates(baseCurrency),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
             ),
           ),
         ],
@@ -468,8 +429,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
   }
-
-  // ===================== HANDLERS & MODALS =====================
 
   Future<void> _handleUpgradeWithGoogle(BuildContext context) async {
     try {
@@ -535,8 +494,85 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Navigator.pop(ctx);
               final authRepo = ref.read(authRepositoryProvider);
               await authRepo.signOut();
+
+              ref.invalidate(authStateProvider);
+              ref.invalidate(currentProfileProvider);
+              ref.invalidate(expensesProvider);
+              ref.invalidate(categoriesProvider);
+
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const AppRouter()),
+                      (route) => false,
+                );
+              }
             },
             child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteAccount(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: _buildDialogTitle(ctx, 'Delete Account?'),
+        content: const Text(
+          'Are you sure you want to permanently delete your account? All your expense records, profile settings, and local cache will be permanently erased.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.overBudget,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final auth = ref.read(authStateProvider);
+                final uid = auth.value?.uid ?? 'guest_user';
+                final supabaseService = ref.read(supabaseServiceProvider);
+
+                await supabaseService.deleteUserData(uid);
+
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('dailycost_cache_profiles');
+                await prefs.remove('dailycost_cache_expenses');
+                await prefs.remove('dailycost_cache_categories');
+                await prefs.remove('dailycost_guest_uid');
+
+                final authRepo = ref.read(authRepositoryProvider);
+                await authRepo.deleteAccount();
+
+                ref.invalidate(authStateProvider);
+                ref.invalidate(currentProfileProvider);
+                ref.invalidate(expensesProvider);
+                ref.invalidate(categoriesProvider);
+
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const AppRouter()),
+                        (route) => false,
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to delete account: $e'),
+                      backgroundColor: AppColors.overBudget,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Delete Permanently'),
           ),
         ],
       ),
@@ -546,8 +582,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _showEditIncomeDialog(BuildContext context, UserProfile? profile) {
     if (profile == null) return;
     final ctrl =
-        TextEditingController(text: profile.monthlyIncome.toStringAsFixed(0));
-
+    TextEditingController(text: profile.monthlyIncome.toStringAsFixed(0));
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -555,12 +590,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          keyboardType: TextInputType.text,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+          ],
           textInputAction: TextInputAction.done,
-          onSubmitted: (val) {
-            final eval = MathExpressionEvaluator.evaluateAndFormat(val);
-            ctrl.text = eval;
-          },
           decoration: InputDecoration(
             prefixText: '${AppConstants.getCurrencyInfo(profile.baseCurrency).symbol} ',
           ),
@@ -572,15 +606,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final newIncome = MathExpressionEvaluator.tryEvaluate(ctrl.text.trim()) ?? 0.0;
-              if (newIncome > 0) {
-                final updated = profile.copyWith(
-                  monthlyIncome: newIncome,
-                  updatedAt: DateTime.now(),
+              final text = ctrl.text.trim();
+              final newIncome = MathExpressionEvaluator.tryEvaluate(text);
+              if (text.isEmpty || newIncome == null || newIncome <= 0) {
+                TopNotification.show(
+                  context,
+                  title: 'Required Field',
+                  message: 'Monthly Income is required and must be greater than 0.',
+                  type: TopNotificationType.error,
                 );
-                await ref.read(profileRepositoryProvider).saveProfile(updated);
-                if (ctx.mounted) Navigator.pop(ctx);
+                return;
               }
+              final updated = profile.copyWith(
+                monthlyIncome: newIncome,
+                updatedAt: DateTime.now(),
+              );
+              await ref.read(profileRepositoryProvider).saveProfile(updated);
+              if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('Save'),
           ),
@@ -593,8 +635,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       BuildContext context, UserProfile? profile) {
     if (profile == null) return;
     final ctrl =
-        TextEditingController(text: profile.savingsGoal.toStringAsFixed(0));
-
+    TextEditingController(text: profile.savingsGoal.toStringAsFixed(0));
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -602,12 +643,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          keyboardType: TextInputType.text,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[\d\.\+\-\*xX \s]')),
+          ],
           textInputAction: TextInputAction.done,
-          onSubmitted: (val) {
-            final eval = MathExpressionEvaluator.evaluateAndFormat(val);
-            ctrl.text = eval;
-          },
           decoration: InputDecoration(
             prefixText: '${AppConstants.getCurrencyInfo(profile.baseCurrency).symbol} ',
           ),
@@ -619,7 +659,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final newGoal = MathExpressionEvaluator.tryEvaluate(ctrl.text.trim()) ?? 0.0;
+              final text = ctrl.text.trim();
+              final newGoal = MathExpressionEvaluator.tryEvaluate(text);
+              if (text.isEmpty || newGoal == null || newGoal < 0) {
+                TopNotification.show(
+                  context,
+                  title: 'Required Field',
+                  message: 'Savings Goal is required and cannot be empty.',
+                  type: TopNotificationType.error,
+                );
+                return;
+              }
               final updated = profile.copyWith(
                 savingsGoal: newGoal,
                 updatedAt: DateTime.now(),
@@ -638,7 +688,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       BuildContext context, UserProfile? profile) {
     if (profile == null) return;
     int selected = profile.cycleStartDay;
-
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -696,7 +745,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       BuildContext context, UserProfile? profile) {
     if (profile == null) return;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -716,8 +764,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 tileColor: isSelected
                     ? (isDark
-                        ? AppColors.primary.withAlpha(50)
-                        : AppColors.primaryContainer)
+                    ? AppColors.primary.withAlpha(50)
+                    : AppColors.primaryContainer)
                     : null,
                 leading: Text(
                   c.symbol,
@@ -740,10 +788,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 trailing: isSelected
                     ? Icon(
-                        Icons.check_circle_rounded,
-                        color: isDark ? AppColors.primaryLight : AppColors.primary,
-                        size: 20,
-                      )
+                  Icons.check_circle_rounded,
+                  color: isDark ? AppColors.primaryLight : AppColors.primary,
+                  size: 20,
+                )
                     : null,
                 selected: isSelected,
                 onTap: () async {
@@ -774,7 +822,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       BuildContext context, UserProfile? profile) {
     if (profile == null) return;
     final costs = List<FixedCost>.from(profile.fixedCosts);
-
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -786,25 +833,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: costs.isEmpty
                 ? const Center(child: Text('No fixed costs added yet'))
                 : ListView.builder(
-                    itemCount: costs.length,
-                    itemBuilder: (ctx, i) {
-                      final item = costs[i];
-                      return ListTile(
-                        title: Text(item.label),
-                        subtitle: Text(CurrencyFormatter.format(item.amount,
-                            currencyCode: profile.baseCurrency)),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded,
-                              color: AppColors.overBudget),
-                          onPressed: () {
-                            setDialogState(() {
-                              costs.removeAt(i);
-                            });
-                          },
-                        ),
-                      );
+              itemCount: costs.length,
+              itemBuilder: (ctx, i) {
+                final item = costs[i];
+                return ListTile(
+                  title: Text(item.label),
+                  subtitle: Text(CurrencyFormatter.format(item.amount,
+                      currencyCode: profile.baseCurrency)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        color: AppColors.overBudget),
+                    onPressed: () {
+                      setDialogState(() {
+                        costs.removeAt(i);
+                      });
                     },
                   ),
+                );
+              },
+            ),
           ),
           actions: [
             TextButton(
@@ -836,7 +883,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       Function(FixedCost) onAdd, String baseCurrency) {
     final labelCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -853,16 +899,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: amountCtrl,
-              keyboardType: TextInputType.text,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+              ],
               textInputAction: TextInputAction.done,
-              onSubmitted: (val) {
-                final eval = MathExpressionEvaluator.evaluateAndFormat(val);
-                amountCtrl.text = eval;
-              },
               decoration: InputDecoration(
                 labelText: 'Monthly Amount',
                 prefixText:
-                    '${AppConstants.getCurrencyInfo(baseCurrency).symbol} ',
+                '${AppConstants.getCurrencyInfo(baseCurrency).symbol} ',
               ),
             ),
           ],
@@ -875,7 +920,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ElevatedButton(
             onPressed: () {
               final label = labelCtrl.text.trim();
-              final amount = MathExpressionEvaluator.tryEvaluate(amountCtrl.text.trim()) ?? 0.0;
+              final amount = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
               if (label.isNotEmpty && amount >= 0) {
                 onAdd(FixedCost(
                   id: 'fixed_${DateTime.now().millisecondsSinceEpoch}',
@@ -894,9 +939,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showManageCategoriesDialog(BuildContext context) {
-    final categories = ref.watch(categoriesProvider).value ?? [];
+    final defaultCategories = AppConstants.presetCategoryData
+        .map((c) => CategoryItem(
+      id: c['id'] as String,
+      name: c['name'] as String,
+      iconCodePoint: c['icon'] as int,
+      colorValue: c['color'] as int,
+      isCustom: false,
+      isHidden: false,
+    ))
+        .toList();
+
+    final categories = ref.watch(categoriesProvider).value ?? defaultCategories;
     final authState = ref.read(authStateProvider);
-    final uid = authState.value?.uid ?? 'local_user';
+    final sbUser = Supabase.instance.client.auth.currentUser;
+    final uid = sbUser?.id ?? authState.value?.uid ?? 'guest_user';
 
     showDialog(
       context: context,
@@ -905,7 +962,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         content: SizedBox(
           width: double.maxFinite,
           height: 360,
-          child: ListView.separated(
+          child: categories.isEmpty
+              ? const Center(child: Text('No categories available'))
+              : ListView.separated(
             itemCount: categories.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (ctx, i) {
@@ -918,29 +977,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 title: Text(cat.name,
                     style: TextStyle(
                       decoration:
-                          cat.isHidden ? TextDecoration.lineThrough : null,
+                      cat.isHidden ? TextDecoration.lineThrough : null,
                     )),
                 subtitle: Text(cat.isCustom ? 'Custom' : 'Preset'),
                 trailing: cat.isCustom
                     ? IconButton(
-                        icon: const Icon(Icons.delete_outline_rounded,
-                            color: AppColors.overBudget),
-                        onPressed: () async {
-                          await ref
-                              .read(categoryRepositoryProvider)
-                              .deleteCategory(uid, cat.id);
-                        },
-                      )
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      color: AppColors.overBudget),
+                  onPressed: () async {
+                    await ref
+                        .read(categoryRepositoryProvider)
+                        .deleteCategory(uid, cat.id);
+                    ref.invalidate(categoriesProvider);
+                  },
+                )
                     : Switch(
-                        value: !cat.isHidden,
-                        activeThumbColor: AppColors.primary,
-                        onChanged: (visible) async {
-                          final updated = cat.copyWith(isHidden: !visible);
-                          await ref
-                              .read(categoryRepositoryProvider)
-                              .saveCategory(uid, updated);
-                        },
-                      ),
+                  value: !cat.isHidden,
+                  activeThumbColor: AppColors.primary,
+                  onChanged: (visible) async {
+                    final updated = cat.copyWith(isHidden: !visible);
+                    await ref
+                        .read(categoryRepositoryProvider)
+                        .saveCategory(uid, updated);
+                    ref.invalidate(categoriesProvider);
+                  },
+                ),
               );
             },
           ),
@@ -963,7 +1024,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final nameCtrl = TextEditingController();
     IconData selectedIcon = AppConstants.selectableIcons.first;
     Color selectedColor = AppColors.customCategoryColors.first;
-
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -1051,7 +1111,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 final name = nameCtrl.text.trim();
                 if (name.isNotEmpty) {
                   final auth = ref.read(authStateProvider);
-                  final uid = auth.value?.uid ?? 'local_user';
+                  final sbUser = Supabase.instance.client.auth.currentUser;
+                  final uid = sbUser?.id ?? auth.value?.uid ?? 'guest_user';
 
                   final newCat = CategoryItem(
                     id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
@@ -1061,10 +1122,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     isCustom: true,
                     isHidden: false,
                   );
-
                   await ref
                       .read(categoryRepositoryProvider)
                       .saveCategory(uid, newCat);
+                  ref.invalidate(categoriesProvider);
                   if (ctx.mounted) Navigator.pop(ctx);
                 }
               },
@@ -1080,7 +1141,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       BuildContext context, String? currentName) async {
     final controller = TextEditingController(text: currentName ?? '');
     final formKey = GlobalKey<FormState>();
-
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1139,4 +1199,3 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 }
-

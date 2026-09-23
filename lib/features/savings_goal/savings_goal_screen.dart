@@ -58,11 +58,7 @@ class SavingsGoalScreen extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: const Color(0xFF4F46E5),
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
@@ -131,23 +127,11 @@ class SavingsGoalScreen extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
-                gradient: isDeficit
-                    ? const LinearGradient(
-                        colors: [Color(0xFFDC2626), Color(0xFF991B1B)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
+                color: isDeficit
+                    ? const Color(0xFFDC2626)
                     : isBoosted
-                        ? const LinearGradient(
-                            colors: [Color(0xFF059669), Color(0xFF047857)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          )
-                        : const LinearGradient(
-                            colors: [Color(0xFF0D9488), Color(0xFF0F766E)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                        ? const Color(0xFF059669)
+                        : const Color(0xFF0D9488),
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(

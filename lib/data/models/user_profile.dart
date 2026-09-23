@@ -9,6 +9,7 @@ class UserProfile {
   final int cycleStartDay;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? displayName;
   final bool isOnboardingCompleted;
 
   const UserProfile({
@@ -20,6 +21,7 @@ class UserProfile {
     required this.cycleStartDay,
     required this.createdAt,
     required this.updatedAt,
+    this.displayName,
     this.isOnboardingCompleted = false,
   });
 
@@ -45,6 +47,7 @@ class UserProfile {
     int? cycleStartDay,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? displayName,
     bool? isOnboardingCompleted,
   }) {
     return UserProfile(
@@ -56,8 +59,9 @@ class UserProfile {
       cycleStartDay: cycleStartDay ?? this.cycleStartDay,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      displayName: displayName ?? this.displayName,
       isOnboardingCompleted:
-          isOnboardingCompleted ?? this.isOnboardingCompleted,
+      isOnboardingCompleted ?? this.isOnboardingCompleted,
     );
   }
 
@@ -71,44 +75,20 @@ class UserProfile {
       'cycleStartDay': cycleStartDay,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'displayName': displayName,
       'isOnboardingCompleted': isOnboardingCompleted,
     };
-  }
-
-  Map<String, dynamic> toSupabaseMap({String? email, String? displayName, String? photoUrl}) {
-    final map = <String, dynamic>{
-      'id': uid,
-      'base_currency': baseCurrency,
-      'monthly_income': monthlyIncome,
-      'fixed_costs': fixedCosts.map((c) => c.toMap()).toList(),
-      'savings_goal': savingsGoal,
-      'cycle_start_day': cycleStartDay,
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
-    };
-    if (email != null) map['email'] = email;
-    if (displayName != null) map['display_name'] = displayName;
-    if (photoUrl != null) map['photo_url'] = photoUrl;
-    return map;
   }
 
   factory UserProfile.fromMap(Map<String, dynamic> map, String uid) {
     DateTime parseDate(dynamic val) {
       if (val is DateTime) return val;
-      if (val != null) {
-        try {
-          // Dynamic invocation for Timestamp.toDate() if present without importing firestore
-          final dynamic dyn = val;
-          if (dyn.toDate is Function) {
-            return dyn.toDate() as DateTime;
-          }
-        } catch (_) {}
-      }
       if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
       return DateTime.now();
     }
 
-    final rawFixedCosts = (map['fixedCosts'] ?? map['fixed_costs']) as List<dynamic>? ?? [];
+    final rawFixedCosts =
+        (map['fixedCosts'] ?? map['fixed_costs']) as List<dynamic>? ?? [];
     final parsedFixedCosts = rawFixedCosts.map((e) {
       if (e is Map) {
         return FixedCost.fromMap(Map<String, dynamic>.from(e));
@@ -116,16 +96,26 @@ class UserProfile {
       return const FixedCost(id: '', label: '', amount: 0.0);
     }).toList();
 
+    // Support both SQL schema 'is_onboarded' and local key 'is_onboarding_completed'
+    final bool onboarded = (map['is_onboarded'] ??
+        map['is_onboarding_completed'] ??
+        map['isOnboardingCompleted']) as bool? ??
+        false;
+
     return UserProfile(
       uid: uid,
       baseCurrency: (map['baseCurrency'] ?? map['base_currency']) as String? ?? 'USD',
-      monthlyIncome: ((map['monthlyIncome'] ?? map['monthly_income']) as num?)?.toDouble() ?? 0.0,
+      monthlyIncome:
+      ((map['monthlyIncome'] ?? map['monthly_income']) as num?)?.toDouble() ?? 0.0,
       fixedCosts: parsedFixedCosts,
-      savingsGoal: ((map['savingsGoal'] ?? map['savings_goal']) as num?)?.toDouble() ?? 0.0,
-      cycleStartDay: ((map['cycleStartDay'] ?? map['cycle_start_day']) as num?)?.toInt() ?? 1,
+      savingsGoal:
+      ((map['savingsGoal'] ?? map['savings_goal']) as num?)?.toDouble() ?? 0.0,
+      cycleStartDay:
+      ((map['cycleStartDay'] ?? map['cycle_start_day']) as num?)?.toInt() ?? 1,
       createdAt: parseDate(map['createdAt'] ?? map['created_at']),
       updatedAt: parseDate(map['updatedAt'] ?? map['updated_at']),
-      isOnboardingCompleted: (map['isOnboardingCompleted'] ?? map['is_onboarding_completed']) as bool? ?? true,
+      displayName: (map['displayName'] ?? map['display_name']) as String?,
+      isOnboardingCompleted: onboarded,
     );
   }
 }

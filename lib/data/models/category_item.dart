@@ -17,8 +17,39 @@ class CategoryItem {
     this.isHidden = false,
   });
 
-  // ignore: non_const_argument_for_const_parameter
-  IconData get iconData => IconData(iconCodePoint, fontFamily: 'MaterialIcons');
+  static const Map<int, IconData> _iconRegistry = {
+    0xe532: Icons.restaurant_rounded,
+    0xe1d5: Icons.directions_bus_rounded,
+    0xf2ea: Icons.receipt_long_rounded,
+    0xf016e: Icons.shopping_bag_rounded,
+    0xe406: Icons.movie_rounded,
+    0xe395: Icons.local_hospital_rounded,
+    0xe391: Icons.local_grocery_store_rounded,
+    0xe318: Icons.home_rounded,
+    0xe402: Icons.more_horiz_rounded,
+    0xe177: Icons.coffee_rounded,
+    0xe3cb: Icons.local_bar_rounded,
+    0xe1d7: Icons.directions_car_rounded,
+    0xe1e1: Icons.flight_rounded,
+    0xf071b: Icons.electric_bolt_rounded,
+    0xe6c4: Icons.wifi_rounded,
+    0xf639: Icons.checkroom_rounded,
+    0xe5d2: Icons.sports_esports_rounded,
+    0xe405: Icons.music_note_rounded,
+    0xe29e: Icons.fitness_center_rounded,
+    0xe5ca: Icons.spa_rounded,
+    0xe496: Icons.pets_rounded,
+    0xe556: Icons.school_rounded,
+    0xe55a: Icons.work_rounded,
+    0xf014d: Icons.savings_rounded,
+    0xe1b8: Icons.card_giftcard_rounded,
+    0xe112: Icons.brush_rounded,
+    0xe4a2: Icons.phone_android_rounded,
+    0xe0bb: Icons.beach_access_rounded,
+    0xe104: Icons.build_rounded,
+  };
+
+  IconData get iconData => _iconRegistry[iconCodePoint] ?? Icons.category_rounded;
 
   Color get color => Color(colorValue);
 

@@ -9,6 +9,10 @@ class PremiumScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    const goldAccent = Color(0xFFFFD700);
+    const goldSecondary = Color(0xFFDAA520);
+    const goldDark = Color(0xFFB8860B);
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -32,15 +36,15 @@ class PremiumScreen extends StatelessWidget {
         actions: [
           Container(
             margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               gradient: const LinearGradient(
-                colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+                colors: [goldAccent, goldSecondary],
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFF59E0B).withAlpha(80),
+                  color: goldAccent.withAlpha(100),
                   blurRadius: 10,
                   offset: const Offset(0, 3),
                 ),
@@ -49,13 +53,13 @@ class PremiumScreen extends StatelessWidget {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 16),
+                Icon(Icons.workspace_premium_rounded, color: Color(0xFF1E1700), size: 16),
                 SizedBox(width: 4),
                 Text(
-                  'VIP ACCESS',
+                  'VIP MEMBER PASS',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1E1700),
+                    fontWeight: FontWeight.w900,
                     fontSize: 11,
                     letterSpacing: 0.8,
                   ),
@@ -67,35 +71,35 @@ class PremiumScreen extends StatelessWidget {
       ),
       body: Stack(
         children: [
-          // Background atmospheric glows
+          // Background atmospheric golden glows
           Positioned(
             top: -60,
             right: -60,
-            child: Container(
-              width: 260,
-              height: 260,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFFF59E0B).withAlpha(isDark ? 50 : 35),
-              ),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 70, sigmaY: 70),
-                child: Container(color: Colors.transparent),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 200,
-            left: -80,
             child: Container(
               width: 280,
               height: 280,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppColors.primary.withAlpha(isDark ? 55 : 30),
+                color: goldAccent.withAlpha(isDark ? 55 : 35),
               ),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+                filter: ImageFilter.blur(sigmaX: 75, sigmaY: 75),
+                child: Container(color: Colors.transparent),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 220,
+            left: -80,
+            child: Container(
+              width: 290,
+              height: 290,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: goldSecondary.withAlpha(isDark ? 50 : 25),
+              ),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 85, sigmaY: 85),
                 child: Container(color: Colors.transparent),
               ),
             ),
@@ -111,23 +115,21 @@ class PremiumScreen extends StatelessWidget {
                 children: [
                   const SizedBox(height: 10),
 
-                  // Luxury Crown Hologram Box
+                  // VIP Golden Crown Emblem
                   Container(
-                    width: 100,
-                    height: 100,
+                    width: 104,
+                    height: 104,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          const Color(0xFFFDE68A).withAlpha(220),
-                          const Color(0xFFF59E0B),
-                          const Color(0xFFB45309),
-                        ],
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFFF1A6), goldAccent, goldDark],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFFF59E0B).withAlpha(120),
-                          blurRadius: 28,
+                          color: goldAccent.withAlpha(140),
+                          blurRadius: 32,
                           spreadRadius: 4,
                           offset: const Offset(0, 8),
                         ),
@@ -135,33 +137,28 @@ class PremiumScreen extends StatelessWidget {
                     ),
                     child: const Center(
                       child: Icon(
-                        Icons.auto_awesome,
-                        color: Colors.white,
-                        size: 48,
+                        Icons.workspace_premium_rounded,
+                        color: Color(0xFF1E1700),
+                        size: 52,
                       ),
                     ),
                   ),
                   const SizedBox(height: 20),
 
                   // Brand Title
-                  ShaderMask(
-                    shaderCallback: (bounds) => const LinearGradient(
-                      colors: [Color(0xFFFBBF24), Color(0xFFF59E0B), Color(0xFF00BBA7)],
-                    ).createShader(bounds),
-                    child: const Text(
-                      'DailyCost Premium',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                        letterSpacing: -0.5,
-                      ),
+                  Text(
+                    'DailyCost VIP Member',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: isDark ? goldAccent : goldDark,
+                      letterSpacing: -0.5,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Elevate your wealth management with institutional-grade financial tools & AI intelligence.',
+                    'Elevate your wealth management with institutional-grade VIP financial tools & AI intelligence.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,
@@ -171,31 +168,21 @@ class PremiumScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
 
-                  // COMING SOON Luxury Glass Banner
+                  // COMING SOON Luxury Golden Glass Banner
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(24),
-                      gradient: LinearGradient(
-                        colors: isDark
-                            ? [
-                                const Color(0xFF1E293B).withAlpha(230),
-                                const Color(0xFF0F172A).withAlpha(230),
-                              ]
-                            : [
-                                Colors.white.withAlpha(240),
-                                const Color(0xFFF1F5F9).withAlpha(240),
-                              ],
-                      ),
+                      color: isDark ? const Color(0xFF1E1708) : Colors.white,
                       border: Border.all(
-                        color: const Color(0xFFF59E0B).withAlpha(120),
+                        color: goldAccent.withAlpha(150),
                         width: 1.5,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFFF59E0B).withAlpha(isDark ? 30 : 20),
-                          blurRadius: 20,
+                          color: goldAccent.withAlpha(isDark ? 40 : 25),
+                          blurRadius: 22,
                           offset: const Offset(0, 6),
                         ),
                       ],
@@ -205,22 +192,22 @@ class PremiumScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF59E0B).withAlpha(30),
+                            color: goldAccent.withAlpha(35),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: const Color(0xFFF59E0B).withAlpha(80),
+                              color: goldAccent.withAlpha(100),
                             ),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.hourglass_top_rounded, size: 16, color: Color(0xFFF59E0B)),
+                              Icon(Icons.workspace_premium_rounded, size: 16, color: goldDark),
                               SizedBox(width: 6),
                               Text(
-                                'EXCLUSIVE PREVIEW',
+                                'EXCLUSIVE VIP PRIVILEGES',
                                 style: TextStyle(
-                                  color: Color(0xFFF59E0B),
-                                  fontWeight: FontWeight.w800,
+                                  color: goldDark,
+                                  fontWeight: FontWeight.w900,
                                   fontSize: 12,
                                   letterSpacing: 1.2,
                                 ),
@@ -228,18 +215,19 @@ class PremiumScreen extends StatelessWidget {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Coming Soon…',
+                        const SizedBox(height: 14),
+                        Text(
+                          'VIP Access Coming Soon…',
                           style: TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
                             letterSpacing: 0.5,
+                            color: isDark ? goldAccent : goldDark,
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'We are crafting an ultra-luxurious experience. Early supporters will receive exclusive discounted lifetime pricing.',
+                          'We are crafting an ultra-luxurious experience. Early VIP supporters will receive exclusive discounted lifetime pricing.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 13,
@@ -256,12 +244,12 @@ class PremiumScreen extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'UPCOMING VIP PRIVILEGES',
+                      'UPCOMING VIP MEMBER PRIVILEGES',
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
                         letterSpacing: 1.2,
-                        color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                        color: isDark ? goldAccent : goldDark,
                       ),
                     ),
                   ),
@@ -272,7 +260,7 @@ class PremiumScreen extends StatelessWidget {
                     context: context,
                     isDark: isDark,
                     icon: Icons.psychology_rounded,
-                    iconColor: const Color(0xFF00BBA7),
+                    iconColor: goldAccent,
                     title: 'Smart AI Spending Predictor',
                     subtitle: 'Real-time forecast for month-end savings based on current burn rate and habits.',
                   ),
@@ -300,7 +288,7 @@ class PremiumScreen extends StatelessWidget {
                     isDark: isDark,
                     icon: Icons.all_inclusive_rounded,
                     iconColor: const Color(0xFF8B5CF6),
-                    title: 'Unlimited Custom Budgets & Goals',
+                    title: 'Unlimited Custom VIP Envelopes & Goals',
                     subtitle: 'Create separate envelopes for vacations, investments, family funds, and projects.',
                   ),
                   const SizedBox(height: 12),
@@ -308,9 +296,9 @@ class PremiumScreen extends StatelessWidget {
                     context: context,
                     isDark: isDark,
                     icon: Icons.palette_rounded,
-                    iconColor: const Color(0xFFF59E0B),
-                    title: 'Exclusive Obsidian & Platinum Themes',
-                    subtitle: 'Unlock custom luxury app icon designs, neon cards, and personalized home layouts.',
+                    iconColor: goldAccent,
+                    title: 'Exclusive Golden & Obsidian Themes',
+                    subtitle: 'Unlock custom luxury app icon designs, neon cards, and VIP personalized home layouts.',
                   ),
 
                   const SizedBox(height: 28),
@@ -322,13 +310,16 @@ class PremiumScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(20),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF00BBA7), Color(0xFF0F766E)],
+                        colors: [Color(0xFF2A2000), Color(0xFF1E1700)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
+                      border: Border.all(
+                        color: goldAccent.withAlpha(120),
+                      ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF00BBA7).withAlpha(80),
+                          color: goldAccent.withAlpha(60),
                           blurRadius: 18,
                           offset: const Offset(0, 6),
                         ),
@@ -339,10 +330,10 @@ class PremiumScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withAlpha(35),
+                            color: goldAccent.withAlpha(40),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 24),
+                          child: const Icon(Icons.workspace_premium_rounded, color: goldAccent, size: 24),
                         ),
                         const SizedBox(width: 14),
                         const Expanded(
@@ -350,7 +341,7 @@ class PremiumScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Get Notified on Launch',
+                                'VIP Priority Notification',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,
@@ -359,7 +350,7 @@ class PremiumScreen extends StatelessWidget {
                               ),
                               SizedBox(height: 2),
                               Text(
-                                'You will receive an in-app priority invitation.',
+                                'You will receive an in-app priority invitation on VIP launch.',
                                 style: TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,
@@ -371,15 +362,17 @@ class PremiumScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            gradient: const LinearGradient(
+                              colors: [goldAccent, goldSecondary],
+                            ),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: const Text(
-                            'Active',
+                            'VIP Active',
                             style: TextStyle(
-                              color: Color(0xFF0F766E),
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
+                              color: Color(0xFF1E1700),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 12,
                             ),
                           ),
                         ),
@@ -408,14 +401,14 @@ class PremiumScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        color: isDark ? const Color(0xFF1E170A) : AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isDark ? AppColors.borderDark : AppColors.borderLight,
+          color: isDark ? const Color(0xFF3D3012) : AppColors.borderLight,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withAlpha(isDark ? 20 : 6),
+            color: Colors.black.withAlpha(isDark ? 30 : 6),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),

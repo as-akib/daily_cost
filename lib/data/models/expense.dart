@@ -49,47 +49,37 @@ class Expense {
       'amountInBaseCurrency': amountInBaseCurrency,
       'category': category,
       'note': note,
-      'date': date.toIso8601String(),
-      'createdAt': createdAt.toIso8601String(),
-    };
-  }
-
-  Map<String, dynamic> toSupabaseMap(String userId) {
-    return {
-      'id': id,
-      'user_id': userId,
-      'amount': amount,
-      'currency': currency,
-      'amount_in_base_currency': amountInBaseCurrency,
-      'category': category,
-      'note': note,
-      'date': date.toIso8601String(),
-      'created_at': createdAt.toIso8601String(),
+      'date': date.toUtc().toIso8601String(),
+      'createdAt': createdAt.toUtc().toIso8601String(),
     };
   }
 
   factory Expense.fromMap(Map<String, dynamic> map, String docId) {
     DateTime parseDate(dynamic val) {
-      if (val is DateTime) return val;
-      if (val != null) {
-        try {
-          final dynamic dyn = val;
-          if (dyn.toDate is Function) {
-            return dyn.toDate() as DateTime;
-          }
-        } catch (_) {}
+      if (val is DateTime) return val.toLocal();
+      if (val is String) {
+        final parsed = DateTime.tryParse(val);
+        if (parsed != null) return parsed.toLocal();
       }
-      if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
       return DateTime.now();
     }
 
+    final rawId = docId.isNotEmpty
+        ? docId
+        : ((map['id'] ?? map['doc_id']) as String? ?? '');
+    final validId = rawId.trim().isNotEmpty
+        ? rawId
+        : 'exp_${DateTime.now().microsecondsSinceEpoch}_${(map['amount'] ?? 0)}';
+
+    final num? rawAmount = (map['amount'] ?? map['amountInBaseCurrency'] ?? map['amount_in_base_currency']) as num?;
+    final double parsedAmount = rawAmount?.toDouble() ?? 0.0;
+
     return Expense(
-      id: docId.isNotEmpty ? docId : (map['id'] as String? ?? ''),
-      amount: ((map['amount']) as num?)?.toDouble() ?? 0.0,
-      currency: map['currency'] as String? ?? 'USD',
-      amountInBaseCurrency:
-          ((map['amountInBaseCurrency'] ?? map['amount_in_base_currency']) as num?)?.toDouble() ?? 0.0,
-      category: map['category'] as String? ?? 'other',
+      id: validId,
+      amount: parsedAmount,
+      currency: map['currency'] as String? ?? 'BDT',
+      amountInBaseCurrency: parsedAmount,
+      category: map['category'] as String? ?? 'food',
       note: map['note'] as String?,
       date: parseDate(map['date']),
       createdAt: parseDate(map['createdAt'] ?? map['created_at']),

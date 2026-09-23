@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/currency_formatter.dart';
@@ -8,6 +10,7 @@ import '../../core/utils/salary_cycle.dart';
 import '../../data/models/fixed_cost.dart';
 import '../../data/models/user_profile.dart';
 import '../../data/repositories/providers.dart';
+import '../../routing/app_router.dart';
 
 class OnboardingWizardScreen extends ConsumerStatefulWidget {
   const OnboardingWizardScreen({super.key});
@@ -17,27 +20,23 @@ class OnboardingWizardScreen extends ConsumerStatefulWidget {
       _OnboardingWizardScreenState();
 }
 
-class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen> {
+class _OnboardingWizardScreenState
+    extends ConsumerState<OnboardingWizardScreen> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
   bool _isSaving = false;
 
-  // Onboarding Form State
-  String _selectedCurrency = 'USD';
+  String _selectedCurrency = 'BDT';
   final TextEditingController _currencySearchCtrl = TextEditingController();
   List<CurrencyInfo> _filteredCurrencies = AppConstants.supportedCurrencies;
-
   final TextEditingController _incomeCtrl = TextEditingController();
   double _monthlyIncome = 0.0;
-
   final Map<String, double> _presetFixedCostsMap = {};
   final Map<String, TextEditingController> _presetControllers = {};
   final Map<String, FocusNode> _presetFocusNodes = {};
   final List<FixedCost> _customFixedCosts = [];
-
   final TextEditingController _savingsGoalCtrl = TextEditingController();
   double _savingsGoal = 0.0;
-
   int _cycleStartDay = 1;
 
   @override
@@ -54,8 +53,8 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
       } else {
         _filteredCurrencies = AppConstants.supportedCurrencies
             .where((c) =>
-                c.code.toLowerCase().contains(query) ||
-                c.name.toLowerCase().contains(query))
+        c.code.toLowerCase().contains(query) ||
+            c.name.toLowerCase().contains(query))
             .toList();
       }
     });
@@ -78,9 +77,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
 
   double get _totalFixedCosts {
     final presetSum =
-        _presetFixedCostsMap.values.fold(0.0, (sum, val) => sum + val);
+    _presetFixedCostsMap.values.fold(0.0, (sum, val) => sum + val);
     final customSum =
-        _customFixedCosts.fold(0.0, (sum, val) => sum + val.amount);
+    _customFixedCosts.fold(0.0, (sum, val) => sum + val.amount);
     return presetSum + customSum;
   }
 
@@ -130,9 +129,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
     setState(() => _isSaving = true);
     try {
       final authState = ref.read(authStateProvider);
-      final uid = authState.value?.uid ?? 'local_user';
+      final sbUser = Supabase.instance.client.auth.currentUser;
+      final uid = authState.value?.uid ?? sbUser?.id ?? 'guest_user';
 
-      // Build fixed costs list
       final allFixedCosts = <FixedCost>[];
       _presetFixedCostsMap.forEach((label, amount) {
         if (amount >= 0) {
@@ -155,16 +154,34 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
         cycleStartDay: _cycleStartDay,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
+        displayName: authState.value?.displayName ?? sbUser?.userMetadata?['full_name'],
         isOnboardingCompleted: true,
       );
 
       final profileRepo = ref.read(profileRepositoryProvider);
-      await profileRepo.saveProfile(profile);
+      await profileRepo.saveProfile(
+        profile,
+        email: authState.value?.email ?? sbUser?.email,
+        displayName: authState.value?.displayName ?? sbUser?.userMetadata?['full_name'],
+        photoUrl: authState.value?.photoUrl ?? sbUser?.userMetadata?['avatar_url'],
+      );
+
+      ref.invalidate(currentProfileProvider);
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const MainNavigationShell(),
+          ),
+              (route) => false,
+        );
+      }
     } catch (e) {
+      debugPrint('Complete onboarding outer error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save profile: $e'),
+            content: Text('Error completing setup: $e'),
             backgroundColor: AppColors.overBudget,
           ),
         );
@@ -177,7 +194,6 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
   void _showAddCustomFixedCostDialog() {
     final labelCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -196,15 +212,15 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
             const SizedBox(height: 16),
             TextField(
               controller: amountCtrl,
-              keyboardType: TextInputType.text,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+              ],
               textInputAction: TextInputAction.done,
-              onSubmitted: (val) {
-                final eval = MathExpressionEvaluator.evaluateAndFormat(val);
-                amountCtrl.text = eval;
-              },
               decoration: InputDecoration(
                 labelText: 'Monthly Amount',
-                prefixText: '${AppConstants.getCurrencyInfo(_selectedCurrency).symbol} ',
+                prefixText:
+                '${AppConstants.getCurrencyInfo(_selectedCurrency).symbol} ',
               ),
             ),
           ],
@@ -217,7 +233,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
           ElevatedButton(
             onPressed: () {
               final label = labelCtrl.text.trim();
-              final amount = MathExpressionEvaluator.tryEvaluate(amountCtrl.text.trim()) ?? 0.0;
+              final amount =
+                  MathExpressionEvaluator.tryEvaluate(amountCtrl.text.trim()) ??
+                      0.0;
               if (label.isNotEmpty && amount > 0) {
                 setState(() {
                   _customFixedCosts.add(FixedCost(
@@ -241,15 +259,19 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currencyInfo = AppConstants.getCurrencyInfo(_selectedCurrency);
-
     return Scaffold(
       appBar: AppBar(
-        leading: _currentStep > 0
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
-                onPressed: _prevPage,
-              )
-            : null,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () async {
+            if (_currentStep > 0) {
+              _prevPage();
+            } else {
+              final authRepo = ref.read(authRepositoryProvider);
+              await authRepo.signOut();
+            }
+          },
+        ),
         title: Text(
           'Step ${_currentStep + 1} of 6',
           style: theme.textTheme.titleMedium?.copyWith(
@@ -285,10 +307,8 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
     );
   }
 
-  // ===================== STEP 1: BASE CURRENCY =====================
   Widget _buildCurrencyStep(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
-
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -317,9 +337,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: _currencySearchCtrl.text.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.clear_rounded),
-                      onPressed: () => _currencySearchCtrl.clear(),
-                    )
+                icon: const Icon(Icons.clear_rounded),
+                onPressed: () => _currencySearchCtrl.clear(),
+              )
                   : null,
             ),
           ),
@@ -331,28 +351,29 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
               itemBuilder: (context, index) {
                 final curr = _filteredCurrencies[index];
                 final isSelected = curr.code == _selectedCurrency;
-
                 return InkWell(
                   onTap: () => setState(() => _selectedCurrency = curr.code),
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 14),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? (isDark
-                              ? AppColors.primary.withAlpha(50)
-                              : AppColors.primaryContainer)
+                          ? AppColors.primary.withAlpha(50)
+                          : AppColors.primaryContainer)
                           : (isDark
-                              ? AppColors.surfaceElevatedDark
-                              : theme.cardTheme.color),
+                          ? AppColors.surfaceElevatedDark
+                          : theme.cardTheme.color),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: isSelected
-                            ? (isDark ? AppColors.primaryLight : AppColors.primary)
+                            ? (isDark
+                            ? AppColors.primaryLight
+                            : AppColors.primary)
                             : (isDark
-                                ? AppColors.borderDark
-                                : AppColors.borderLight),
+                            ? AppColors.borderDark
+                            : AppColors.borderLight),
                         width: isSelected ? 2 : 1,
                       ),
                     ),
@@ -363,10 +384,12 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                           height: 44,
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? (isDark ? AppColors.primaryLight : AppColors.primary)
+                                ? (isDark
+                                ? AppColors.primaryLight
+                                : AppColors.primary)
                                 : (isDark
-                                    ? AppColors.surfaceDark
-                                    : AppColors.primaryContainer),
+                                ? AppColors.surfaceDark
+                                : AppColors.primaryContainer),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Center(
@@ -374,8 +397,12 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                               curr.symbol,
                               style: TextStyle(
                                 color: isSelected
-                                    ? (isDark ? const Color(0xFF0F172A) : Colors.white)
-                                    : (isDark ? AppColors.primaryLight : AppColors.primary),
+                                    ? (isDark
+                                    ? const Color(0xFF0F172A)
+                                    : Colors.white)
+                                    : (isDark
+                                    ? AppColors.primaryLight
+                                    : AppColors.primary),
                                 fontWeight: FontWeight.bold,
                                 fontSize: 18,
                               ),
@@ -392,16 +419,24 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: isDark
-                                      ? (isSelected ? Colors.white : AppColors.textPrimaryDark)
-                                      : (isSelected ? AppColors.primaryDark : AppColors.textPrimaryLight),
+                                      ? (isSelected
+                                      ? Colors.white
+                                      : AppColors.textPrimaryDark)
+                                      : (isSelected
+                                      ? AppColors.primaryDark
+                                      : AppColors.textPrimaryLight),
                                 ),
                               ),
                               Text(
                                 curr.name,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: isDark
-                                      ? (isSelected ? Colors.white70 : AppColors.textSecondaryDark)
-                                      : (isSelected ? AppColors.primaryDark.withAlpha(180) : AppColors.textSecondaryLight),
+                                      ? (isSelected
+                                      ? Colors.white70
+                                      : AppColors.textSecondaryDark)
+                                      : (isSelected
+                                      ? AppColors.primaryDark.withAlpha(180)
+                                      : AppColors.textSecondaryLight),
                                 ),
                               ),
                             ],
@@ -410,7 +445,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                         if (isSelected)
                           Icon(
                             Icons.check_circle_rounded,
-                            color: isDark ? AppColors.primaryLight : AppColors.primary,
+                            color: isDark
+                                ? AppColors.primaryLight
+                                : AppColors.primary,
                           ),
                       ],
                     ),
@@ -429,10 +466,8 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
     );
   }
 
-  // ===================== STEP 2: MONTHLY INCOME =====================
   Widget _buildIncomeStep(ThemeData theme, CurrencyInfo currencyInfo) {
     final isDark = theme.brightness == Brightness.dark;
-
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -453,32 +488,54 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                   : AppColors.textSecondaryLight,
             ),
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 28),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             decoration: BoxDecoration(
               color: theme.cardTheme.color,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                color: _monthlyIncome > 0
+                    ? AppColors.primary
+                    : (isDark ? AppColors.borderDark : AppColors.borderLight),
+                width: _monthlyIncome > 0 ? 2 : 1,
               ),
+              boxShadow: [
+                if (_monthlyIncome > 0)
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  ),
+              ],
             ),
             child: Column(
               children: [
-                Text(
-                  'Income in ${currencyInfo.code}',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: isDark
-                        ? AppColors.textSecondaryDark
-                        : AppColors.textSecondaryLight,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.account_balance_wallet_rounded,
+                        color: AppColors.primary, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Income in ${currencyInfo.code}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: isDark
+                            ? AppColors.textSecondaryDark
+                            : AppColors.textSecondaryLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _incomeCtrl,
                   autofocus: true,
-                  keyboardType: TextInputType.text,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[\d\.\+\-\*xX \s]')),
+                  ],
                   textInputAction: TextInputAction.done,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.displaySmall?.copyWith(
@@ -497,20 +554,49 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                     focusedBorder: InputBorder.none,
                   ),
                   onChanged: (val) {
+                    final parsed = MathExpressionEvaluator.tryEvaluate(val.trim());
                     setState(() {
-                      _monthlyIncome = MathExpressionEvaluator.tryEvaluate(val) ?? 0.0;
-                    });
-                  },
-                  onSubmitted: (val) {
-                    final eval = MathExpressionEvaluator.evaluateAndFormat(val);
-                    setState(() {
-                      _incomeCtrl.text = eval;
-                      _monthlyIncome = double.tryParse(eval) ?? 0.0;
+                      _monthlyIncome =
+                      (parsed != null && parsed > 0) ? parsed : 0.0;
                     });
                   },
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [30000, 50000, 80000, 100000, 150000].map((amount) {
+              final isSelected = _monthlyIncome == amount.toDouble();
+              return ActionChip(
+                label: Text(
+                    '${currencyInfo.symbol} ${CurrencyFormatter.format(amount.toDouble(), currencyCode: currencyInfo.code)}'),
+                backgroundColor: isSelected
+                    ? AppColors.primary
+                    : (isDark
+                    ? AppColors.surfaceElevatedDark
+                    : AppColors.surfaceLight),
+                labelStyle: TextStyle(
+                  color: isSelected
+                      ? Colors.white
+                      : (isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimaryLight),
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 13,
+                ),
+                onPressed: () {
+                  final textVal = amount.toString();
+                  _incomeCtrl.text = textVal;
+                  setState(() {
+                    _monthlyIncome = amount.toDouble();
+                  });
+                },
+              );
+            }).toList(),
           ),
           const Spacer(),
           ElevatedButton(
@@ -522,10 +608,8 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
     );
   }
 
-  // ===================== STEP 3: FIXED COSTS =====================
   Widget _buildFixedCostsStep(ThemeData theme, CurrencyInfo currencyInfo) {
     final isDark = theme.brightness == Brightness.dark;
-
     return Column(
       children: [
         Padding(
@@ -555,11 +639,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             children: [
-              // Preset Checklist Items
               ...AppConstants.presetFixedCostLabels.map((label) {
                 final isChecked = _presetFixedCostsMap.containsKey(label);
                 final currentVal = _presetFixedCostsMap[label] ?? 0.0;
-
                 final ctrl = _presetControllers.putIfAbsent(label, () {
                   return TextEditingController(
                     text: currentVal > 0
@@ -567,21 +649,23 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                         : '100',
                   );
                 });
-
                 final focusNode = _presetFocusNodes.putIfAbsent(label, () {
                   final fn = FocusNode();
                   fn.addListener(() {
                     if (!fn.hasFocus) {
                       final c = _presetControllers[label];
                       if (c != null) {
-                        final eval = MathExpressionEvaluator.evaluateAndFormat(c.text);
+                        final eval =
+                        MathExpressionEvaluator.evaluateAndFormat(c.text);
                         c.text = eval;
                         final parsed = double.tryParse(eval);
                         if (mounted) {
                           setState(() {
                             if (_presetFixedCostsMap.containsKey(label)) {
                               _presetFixedCostsMap[label] =
-                                  (parsed != null && parsed >= 0) ? parsed : 0.0;
+                              (parsed != null && parsed >= 0)
+                                  ? parsed
+                                  : 0.0;
                             }
                           });
                         }
@@ -590,14 +674,13 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                   });
                   return fn;
                 });
-
                 void toggleItem(bool? checked) {
                   setState(() {
                     if (checked == true) {
-                      final parsed = MathExpressionEvaluator.tryEvaluate(ctrl.text.trim());
-                      final val = (parsed != null && parsed > 0)
-                          ? parsed
-                          : 100.0;
+                      final parsed = MathExpressionEvaluator.tryEvaluate(
+                          ctrl.text.trim());
+                      final val =
+                      (parsed != null && parsed > 0) ? parsed : 100.0;
                       _presetFixedCostsMap[label] = val;
                       ctrl.text = val.toStringAsFixed(0);
                       ctrl.selection = TextSelection(
@@ -640,7 +723,10 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                             child: TextFormField(
                               controller: ctrl,
                               focusNode: focusNode,
-                              keyboardType: TextInputType.text,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                              ],
                               textInputAction: TextInputAction.done,
                               decoration: InputDecoration(
                                 prefixText: '${currencyInfo.symbol} ',
@@ -655,22 +741,12 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                               ),
                               onChanged: (val) {
                                 final trimmed = val.trim();
-                                final parsed = MathExpressionEvaluator.tryEvaluate(trimmed);
-                                setState(() {
-                                  // Minimum amount is 0.0 when cleared/backspaced or empty
-                                  _presetFixedCostsMap[label] =
-                                      (parsed != null && parsed >= 0)
-                                          ? parsed
-                                          : 0.0;
-                                });
-                              },
-                              onFieldSubmitted: (val) {
-                                final eval = MathExpressionEvaluator.evaluateAndFormat(val);
-                                ctrl.text = eval;
-                                final parsed = double.tryParse(eval);
+                                final parsed = double.tryParse(trimmed);
                                 setState(() {
                                   _presetFixedCostsMap[label] =
-                                      (parsed != null && parsed >= 0) ? parsed : 0.0;
+                                  (parsed != null && parsed >= 0)
+                                      ? parsed
+                                      : 0.0;
                                 });
                               },
                             ),
@@ -680,8 +756,6 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                   ),
                 );
               }),
-
-              // Custom Fixed Costs
               if (_customFixedCosts.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -716,7 +790,6 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                   );
                 }),
               ],
-
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _showAddCustomFixedCostDialog,
@@ -727,8 +800,6 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
             ],
           ),
         ),
-
-        // Running Total Bar at Bottom
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           decoration: BoxDecoration(
@@ -778,10 +849,8 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
     );
   }
 
-  // ===================== STEP 4: SAVINGS GOAL =====================
   Widget _buildSavingsGoalStep(ThemeData theme, CurrencyInfo currencyInfo) {
     final isDark = theme.brightness == Brightness.dark;
-
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -802,32 +871,54 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                   : AppColors.textSecondaryLight,
             ),
           ),
-          const SizedBox(height: 36),
+          const SizedBox(height: 28),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             decoration: BoxDecoration(
               color: theme.cardTheme.color,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                color: _savingsGoal > 0
+                    ? AppColors.withinBudget
+                    : (isDark ? AppColors.borderDark : AppColors.borderLight),
+                width: _savingsGoal > 0 ? 2 : 1,
               ),
+              boxShadow: [
+                if (_savingsGoal > 0)
+                  BoxShadow(
+                    color: AppColors.withinBudget.withValues(alpha: 0.15),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  ),
+              ],
             ),
             child: Column(
               children: [
-                Text(
-                  'Target Savings (${currencyInfo.code})',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: isDark
-                        ? AppColors.textSecondaryDark
-                        : AppColors.textSecondaryLight,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.savings_rounded,
+                        color: AppColors.withinBudget, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Target Savings (${currencyInfo.code})',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: isDark
+                            ? AppColors.textSecondaryDark
+                            : AppColors.textSecondaryLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _savingsGoalCtrl,
                   autofocus: true,
-                  keyboardType: TextInputType.text,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[\d\.\+\-\*xX \s]')),
+                  ],
                   textInputAction: TextInputAction.done,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.displaySmall?.copyWith(
@@ -846,21 +937,51 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                     focusedBorder: InputBorder.none,
                   ),
                   onChanged: (val) {
+                    final parsed = MathExpressionEvaluator.tryEvaluate(val.trim());
                     setState(() {
-                      _savingsGoal = MathExpressionEvaluator.tryEvaluate(val) ?? 0.0;
-                    });
-                  },
-                  onSubmitted: (val) {
-                    final eval = MathExpressionEvaluator.evaluateAndFormat(val);
-                    setState(() {
-                      _savingsGoalCtrl.text = eval;
-                      _savingsGoal = double.tryParse(eval) ?? 0.0;
+                      _savingsGoal =
+                      (parsed != null && parsed >= 0) ? parsed : 0.0;
                     });
                   },
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          if (_monthlyIncome > 0)
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [10, 15, 20, 25, 30].map((pct) {
+                final calculated = (_monthlyIncome * pct / 100).roundToDouble();
+                final isSelected = (_savingsGoal - calculated).abs() < 1.0;
+                return ActionChip(
+                  label: Text(
+                      '$pct% (${currencyInfo.symbol} ${CurrencyFormatter.format(calculated, currencyCode: currencyInfo.code)})'),
+                  backgroundColor: isSelected
+                      ? AppColors.withinBudget
+                      : (isDark
+                      ? AppColors.surfaceElevatedDark
+                      : AppColors.surfaceLight),
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? Colors.white
+                        : (isDark
+                        ? AppColors.textPrimaryDark
+                        : AppColors.textPrimaryLight),
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    fontSize: 12,
+                  ),
+                  onPressed: () {
+                    _savingsGoalCtrl.text = calculated.toInt().toString();
+                    setState(() {
+                      _savingsGoal = calculated;
+                    });
+                  },
+                );
+              }).toList(),
+            ),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(16),
@@ -896,7 +1017,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
           ),
           const Spacer(),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: (_savingsGoalCtrl.text.trim().isNotEmpty && _savingsGoal >= 0)
+                ? _nextPage
+                : null,
             child: const Text('Next: Salary Cycle'),
           ),
         ],
@@ -904,10 +1027,8 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
     );
   }
 
-  // ===================== STEP 5: SALARY CYCLE START DAY =====================
   Widget _buildCycleStartStep(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
-
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -928,90 +1049,128 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                   : AppColors.textSecondaryLight,
             ),
           ),
-          const SizedBox(height: 28),
-          Center(
-            child: Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                gradient: AppColors.heroGradient,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withAlpha(80),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  '$_cycleStartDay',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 48,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: Text(
-              'Current cycle: ${_currentCycle.formattedRange} (${_currentCycle.totalDays} days)',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: isDark ? AppColors.primaryLight : AppColors.primary,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Slider(
-            value: _cycleStartDay.toDouble(),
-            min: 1,
-            max: 31,
-            divisions: 30,
-            label: 'Day $_cycleStartDay',
-            onChanged: (val) {
-              setState(() {
-                _cycleStartDay = val.round();
-              });
-            },
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: isDark
-                  ? AppColors.surfaceElevatedDark
-                  : AppColors.primaryContainer,
-              borderRadius: BorderRadius.circular(16),
+              color: theme.cardTheme.color,
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: isDark ? AppColors.borderDark : AppColors.borderLight,
               ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.info_outline_rounded,
-                  color: isDark ? AppColors.primaryLight : AppColors.primary,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Days 29-31 will automatically clamp to the last valid day in shorter months like February.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: isDark
-                          ? AppColors.textPrimaryDark
-                          : AppColors.textPrimaryLight,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '$_cycleStartDay',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Day $_cycleStartDay of each month',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Cycle: ${_currentCycle.formattedRange}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.primaryLight
+                                  : AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Slider(
+                  value: _cycleStartDay.toDouble(),
+                  min: 1,
+                  max: 31,
+                  divisions: 30,
+                  activeColor: AppColors.primary,
+                  label: 'Day $_cycleStartDay',
+                  onChanged: (val) {
+                    setState(() {
+                      _cycleStartDay = val.round();
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Quick Select Popular Salary Dates:',
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: isDark
+                  ? AppColors.textSecondaryDark
+                  : AppColors.textSecondaryLight,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [1, 5, 10, 15, 25, 28, 30].map((day) {
+              final isSelected = _cycleStartDay == day;
+              return ChoiceChip(
+                label: Text('Day $day'),
+                selected: isSelected,
+                selectedColor: AppColors.primary,
+                backgroundColor: isDark
+                    ? AppColors.surfaceElevatedDark
+                    : AppColors.surfaceLight,
+                labelStyle: TextStyle(
+                  color: isSelected
+                      ? Colors.white
+                      : (isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimaryLight),
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                ),
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() {
+                      _cycleStartDay = day;
+                    });
+                  }
+                },
+              );
+            }).toList(),
           ),
           const Spacer(),
           ElevatedButton(
@@ -1023,17 +1182,15 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
     );
   }
 
-  // ===================== STEP 6: SUMMARY / CONFIRMATION =====================
   Widget _buildConfirmationStep(ThemeData theme, CurrencyInfo currencyInfo) {
     final isDark = theme.brightness == Brightness.dark;
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Your Daily Allowance 🎉',
+            'Your Daily Allowance',
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w800,
             ),
@@ -1050,12 +1207,10 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 28),
-
-          // Big Prominent Hero Daily Cost Card
           Container(
             padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
             decoration: BoxDecoration(
-              gradient: AppColors.heroGradient,
+              color: AppColors.primary,
               borderRadius: BorderRadius.circular(28),
               boxShadow: [
                 BoxShadow(
@@ -1099,16 +1254,14 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
               ],
             ),
           ),
-
           const SizedBox(height: 24),
-
-          // Math Breakdown Card
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
                 children: [
-                  _buildMathRow('Monthly Income', _monthlyIncome, isPositive: true),
+                  _buildMathRow('Monthly Income', _monthlyIncome,
+                      isPositive: true),
                   const Divider(height: 24),
                   _buildMathRow('Fixed Costs', -_totalFixedCosts),
                   const SizedBox(height: 8),
@@ -1132,7 +1285,7 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                         ),
                       ),
                       Text(
-                        '÷ ${_currentCycle.totalDays} days',
+                        '${_currentCycle.totalDays} days',
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
@@ -1143,9 +1296,7 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
               ),
             ),
           ),
-
           const SizedBox(height: 32),
-
           if (_isSaving)
             const Center(child: CircularProgressIndicator())
           else
@@ -1155,7 +1306,7 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
                 padding: const EdgeInsets.symmetric(vertical: 18),
               ),
               child: const Text(
-                'Let\'s Get Started 🚀',
+                'Let\'s Get Started',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
               ),
             ),
@@ -1166,11 +1317,11 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
   }
 
   Widget _buildMathRow(
-    String label,
-    double amount, {
-    bool isPositive = false,
-    bool isHighlight = false,
-  }) {
+      String label,
+      double amount, {
+        bool isPositive = false,
+        bool isHighlight = false,
+      }) {
     final theme = Theme.of(context);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1182,14 +1333,15 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
           ),
         ),
         Text(
-          CurrencyFormatter.format(amount.abs(), currencyCode: _selectedCurrency),
+          CurrencyFormatter.format(amount.abs(),
+              currencyCode: _selectedCurrency),
           style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w800,
             color: isHighlight
                 ? AppColors.primary
                 : (amount < 0
-                    ? AppColors.overBudget
-                    : AppColors.withinBudget),
+                ? AppColors.overBudget
+                : AppColors.withinBudget),
           ),
         ),
       ],

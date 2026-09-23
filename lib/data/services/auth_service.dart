@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide AuthUser, AuthException;
-import '../../core/errors/app_exception.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as sb;
+import 'supabase_service.dart';
 
 class AuthUser {
   final String uid;
@@ -18,7 +18,7 @@ class AuthUser {
     this.email,
     this.displayName,
     this.photoUrl,
-    required this.isAnonymous,
+    this.isAnonymous = false,
     this.isGoogle = false,
   });
 
@@ -26,242 +26,248 @@ class AuthUser {
     if (displayName == null || displayName!.trim().isEmpty) return null;
     return displayName!.trim().split(' ').first;
   }
-
-  String? get lastName {
-    if (displayName == null || displayName!.trim().isEmpty) return null;
-    final parts = displayName!.trim().split(' ');
-    if (parts.length > 1) {
-      return parts.sublist(1).join(' ');
-    }
-    return null;
-  }
-
-  AuthUser copyWith({
-    String? uid,
-    String? email,
-    String? displayName,
-    String? photoUrl,
-    bool? isAnonymous,
-    bool? isGoogle,
-  }) {
-    return AuthUser(
-      uid: uid ?? this.uid,
-      email: email ?? this.email,
-      displayName: displayName ?? this.displayName,
-      photoUrl: photoUrl ?? this.photoUrl,
-      isAnonymous: isAnonymous ?? this.isAnonymous,
-      isGoogle: isGoogle ?? this.isGoogle,
-    );
-  }
 }
 
-typedef DataMergeCallback = Future<void> Function(String oldUid, String newUid);
-
 class AuthService {
-  final SupabaseClient? supabaseClient;
-  final GoogleSignIn _googleSignIn;
+  final sb.SupabaseClient? supabaseClient;
+  final SupabaseService supabaseService;
+
+  final StreamController<AuthUser?> _authStateController =
+  StreamController<AuthUser?>.broadcast();
 
   AuthUser? _currentUser;
-  final _userStreamController = StreamController<AuthUser?>.broadcast();
+  bool _initialized = false;
+
+  static const String webClientId =
+      '363538586530-hkehkid31ia9e8dg50fbeo6ho9s6ilf7.apps.googleusercontent.com';
 
   AuthService({
     this.supabaseClient,
-    GoogleSignIn? googleSignIn,
-  }) : _googleSignIn = googleSignIn ?? GoogleSignIn() {
-    _initFromStorage();
+    required this.supabaseService,
+  }) {
+    _initAuth();
   }
-
-  bool get isSupabaseAvailable => supabaseClient != null;
 
   AuthUser? get currentUser => _currentUser;
 
-  Stream<AuthUser?> authStateChanges() => _userStreamController.stream;
+  Stream<AuthUser?> authStateChanges() => _authStateController.stream;
 
-  Future<void> _initFromStorage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final uid = prefs.getString('dailycost_auth_uid');
-      if (uid != null) {
-        final email = prefs.getString('dailycost_auth_email');
-        final displayName = prefs.getString('dailycost_auth_name');
-        final photoUrl = prefs.getString('dailycost_auth_photo');
-        final isAnonymous = prefs.getBool('dailycost_auth_is_anon') ?? false;
-        final isGoogle = prefs.getBool('dailycost_auth_is_google') ?? false;
+  Future<void> ensureInitialized() async {
+    if (_initialized) return;
+    await _initAuth();
+  }
 
+  Future<void> _initAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (supabaseClient != null) {
+      final session = supabaseClient!.auth.currentSession;
+      final user = session?.user;
+
+      if (user != null) {
+        _currentUser = _mapSupabaseUser(user);
+        _authStateController.add(_currentUser);
+      } else {
+        final guestId = prefs.getString('dailycost_guest_uid');
+        if (guestId != null && guestId.isNotEmpty) {
+          _currentUser = AuthUser(
+            uid: guestId,
+            isAnonymous: true,
+            isGoogle: false,
+          );
+          _authStateController.add(_currentUser);
+        } else {
+          _currentUser = null;
+          _authStateController.add(null);
+        }
+      }
+
+      supabaseClient!.auth.onAuthStateChange.listen((data) {
+        final sb.AuthChangeEvent event = data.event;
+        final sb.Session? currentSession = data.session;
+
+        if ((event == sb.AuthChangeEvent.signedIn ||
+            event == sb.AuthChangeEvent.tokenRefreshed ||
+            event == sb.AuthChangeEvent.userUpdated) &&
+            currentSession != null) {
+          _currentUser = _mapSupabaseUser(currentSession.user);
+          _authStateController.add(_currentUser);
+        } else if (event == sb.AuthChangeEvent.signedOut) {
+          final guestId = prefs.getString('dailycost_guest_uid');
+          if (guestId != null && guestId.isNotEmpty) {
+            _currentUser = AuthUser(
+              uid: guestId,
+              isAnonymous: true,
+              isGoogle: false,
+            );
+            _authStateController.add(_currentUser);
+          } else {
+            _currentUser = null;
+            _authStateController.add(null);
+          }
+        }
+      });
+    } else {
+      final guestId = prefs.getString('dailycost_guest_uid');
+      if (guestId != null && guestId.isNotEmpty) {
         _currentUser = AuthUser(
-          uid: uid,
-          email: email,
-          displayName: displayName,
-          photoUrl: photoUrl,
-          isAnonymous: isAnonymous,
-          isGoogle: isGoogle,
+          uid: guestId,
+          isAnonymous: true,
+          isGoogle: false,
         );
-        _userStreamController.add(_currentUser);
+      } else {
+        _currentUser = null;
       }
-    } catch (e) {
-      debugPrint('Error loading auth from storage: $e');
+      _authStateController.add(_currentUser);
     }
+
+    _initialized = true;
   }
 
-  Future<void> _persistUser(AuthUser user) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('dailycost_auth_uid', user.uid);
-      if (user.email != null) {
-        await prefs.setString('dailycost_auth_email', user.email!);
-      } else {
-        await prefs.remove('dailycost_auth_email');
-      }
-      if (user.displayName != null) {
-        await prefs.setString('dailycost_auth_name', user.displayName!);
-      } else {
-        await prefs.remove('dailycost_auth_name');
-      }
-      if (user.photoUrl != null) {
-        await prefs.setString('dailycost_auth_photo', user.photoUrl!);
-      } else {
-        await prefs.remove('dailycost_auth_photo');
-      }
-      await prefs.setBool('dailycost_auth_is_anon', user.isAnonymous);
-      await prefs.setBool('dailycost_auth_is_google', user.isGoogle);
-    } catch (_) {}
+  AuthUser _mapSupabaseUser(sb.User user) {
+    final rawMeta = user.userMetadata ?? {};
+    final isGoogleProvider = user.appMetadata['provider'] == 'google' ||
+        user.identities?.any((i) => i.provider == 'google') == true;
+
+    return AuthUser(
+      uid: user.id,
+      email: user.email,
+      displayName: (rawMeta['full_name'] ?? rawMeta['name']) as String?,
+      photoUrl: (rawMeta['avatar_url'] ?? rawMeta['picture']) as String?,
+      isAnonymous: user.isAnonymous,
+      isGoogle: isGoogleProvider,
+    );
   }
 
-  /// Continue as Guest
   Future<AuthUser> signInAnonymously() async {
     final prefs = await SharedPreferences.getInstance();
-    var guestUid = prefs.getString('dailycost_guest_uid');
-    if (guestUid == null) {
-      guestUid = 'guest_${DateTime.now().millisecondsSinceEpoch}';
-      await prefs.setString('dailycost_guest_uid', guestUid);
-    }
 
-    final user = AuthUser(
+    // Always generate a completely fresh Guest ID on new login
+    String guestUid = 'guest_${DateTime.now().millisecondsSinceEpoch}';
+    await prefs.setString('dailycost_guest_uid', guestUid);
+
+    _currentUser = AuthUser(
       uid: guestUid,
+      email: null,
       displayName: 'Guest User',
       isAnonymous: true,
       isGoogle: false,
     );
-
-    _currentUser = user;
-    await _persistUser(user);
-    _userStreamController.add(user);
-    return user;
+    _authStateController.add(_currentUser);
+    return _currentUser!;
   }
 
-  /// Sign in with Google
   Future<AuthUser> signInWithGoogle() async {
+    final GoogleSignIn googleSignIn = GoogleSignIn(
+      serverClientId: webClientId,
+      scopes: ['email', 'profile', 'openid'],
+    );
+
     try {
-      final googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) {
-        throw AuthException('Google sign-in was cancelled');
+      await googleSignIn.signOut();
+    } catch (_) {}
+
+    final googleUser = await googleSignIn.signIn();
+    if (googleUser == null) {
+      throw Exception('Google sign-in was cancelled.');
+    }
+
+    final googleAuth = await googleUser.authentication;
+    final accessToken = googleAuth.accessToken;
+    final idToken = googleAuth.idToken;
+
+    if (idToken == null) {
+      throw Exception('Missing Google ID Token.');
+    }
+
+    if (supabaseClient != null) {
+      final res = await supabaseClient!.auth.signInWithIdToken(
+        provider: sb.OAuthProvider.google,
+        idToken: idToken,
+        accessToken: accessToken,
+      );
+
+      final user = res.user;
+      if (user == null) {
+        throw Exception('Supabase failed to authenticate user.');
       }
 
-      final googleAuth = await googleUser.authentication;
-      final idToken = googleAuth.idToken;
-      final accessToken = googleAuth.accessToken;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('dailycost_guest_uid');
 
-      String uid = 'google_${googleUser.id}';
-      String? displayName = googleUser.displayName;
-
-      // Extract givenName and familyName if available, or use displayName
-      if (displayName == null || displayName.trim().isEmpty) {
-        final emailPart = googleUser.email.split('@').first;
-        displayName = emailPart;
-      }
-
-      if (isSupabaseAvailable && idToken != null) {
-        try {
-          final res = await supabaseClient!.auth.signInWithIdToken(
-            provider: OAuthProvider.google,
-            idToken: idToken,
-            accessToken: accessToken,
-          );
-          if (res.user != null) {
-            uid = res.user!.id;
-          }
-        } catch (e) {
-          debugPrint('Supabase signInWithIdToken note: $e');
-        }
-      }
-
-      final user = AuthUser(
-        uid: uid,
+      _currentUser = _mapSupabaseUser(user);
+      _authStateController.add(_currentUser);
+      return _currentUser!;
+    } else {
+      _currentUser = AuthUser(
+        uid: googleUser.id,
         email: googleUser.email,
-        displayName: displayName,
+        displayName: googleUser.displayName,
         photoUrl: googleUser.photoUrl,
         isAnonymous: false,
         isGoogle: true,
       );
-
-      _currentUser = user;
-      await _persistUser(user);
-      _userStreamController.add(user);
-      return user;
-    } catch (e) {
-      if (e is AuthException) rethrow;
-      throw AuthException('Google sign-in failed: $e');
+      _authStateController.add(_currentUser);
+      return _currentUser!;
     }
   }
 
-  /// Upgrade guest account with Google
-  Future<AuthUser> linkWithGoogle({DataMergeCallback? onMergeData}) async {
-    final oldUid = _currentUser?.uid;
-    final newUser = await signInWithGoogle();
-
-    if (oldUid != null && oldUid != newUser.uid && onMergeData != null) {
-      await onMergeData(oldUid, newUser.uid);
-    }
-
-    return newUser;
+  Future<AuthUser> linkWithGoogle() async {
+    return await signInWithGoogle();
   }
 
-  /// Update Display Name (with instant UI updates and Supabase sync)
   Future<void> updateDisplayName(String newName) async {
-    if (_currentUser == null) return;
-    final trimmed = newName.trim();
-    if (trimmed.isEmpty) return;
+    if (_currentUser != null) {
+      _currentUser = AuthUser(
+        uid: _currentUser!.uid,
+        email: _currentUser!.email,
+        displayName: newName,
+        photoUrl: _currentUser!.photoUrl,
+        isAnonymous: _currentUser!.isAnonymous,
+        isGoogle: _currentUser!.isGoogle,
+      );
+      _authStateController.add(_currentUser);
+    }
 
-    final updated = _currentUser!.copyWith(displayName: trimmed);
-    _currentUser = updated;
-    await _persistUser(updated);
-    _userStreamController.add(updated);
-
-    if (isSupabaseAvailable && !updated.isAnonymous) {
+    if (supabaseClient != null) {
       try {
         await supabaseClient!.auth.updateUser(
-          UserAttributes(data: {'display_name': trimmed}),
+          sb.UserAttributes(data: {'full_name': newName}),
         );
-        await supabaseClient!.from('profiles').update({
-          'display_name': trimmed,
-          'updated_at': DateTime.now().toIso8601String(),
-        }).eq('id', updated.uid);
       } catch (e) {
-        debugPrint('Error updating Supabase user display name: $e');
+        debugPrint('Error updating Supabase displayName: $e');
       }
     }
   }
 
   Future<void> signOut() async {
     try {
-      await _googleSignIn.signOut();
-      if (isSupabaseAvailable) {
-        await supabaseClient?.auth.signOut();
-      }
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('dailycost_auth_uid');
-      await prefs.remove('dailycost_auth_email');
-      await prefs.remove('dailycost_auth_name');
-      await prefs.remove('dailycost_auth_photo');
-      await prefs.remove('dailycost_auth_is_anon');
-      await prefs.remove('dailycost_auth_is_google');
-    } catch (_) {}
-
+      await prefs.remove('dailycost_guest_uid');
+      if (supabaseClient != null) {
+        await supabaseClient!.auth.signOut();
+      }
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      if (await googleSignIn.isSignedIn()) {
+        await googleSignIn.signOut();
+      }
+    } catch (e) {
+      debugPrint('Error signing out: $e');
+    }
     _currentUser = null;
-    _userStreamController.add(null);
+    _authStateController.add(null);
   }
 
-  void dispose() {
-    _userStreamController.close();
+  Future<void> deleteAccount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final guestId = prefs.getString('dailycost_guest_uid');
+    if (guestId != null) {
+      await supabaseService.deleteUserData(guestId);
+      await prefs.remove('dailycost_guest_uid');
+    }
+    if (_currentUser != null) {
+      await supabaseService.deleteUserData(_currentUser!.uid);
+    }
+    await signOut();
   }
 }

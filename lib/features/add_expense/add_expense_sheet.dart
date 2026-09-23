@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
@@ -8,11 +10,11 @@ import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/math_expression_evaluator.dart';
 import '../../core/utils/top_notification.dart';
 import '../../data/models/expense.dart';
+import '../../data/models/category_item.dart';
 import '../../data/repositories/providers.dart';
 
 class AddExpenseSheet extends ConsumerStatefulWidget {
   final Expense? expenseToEdit;
-
   const AddExpenseSheet({super.key, this.expenseToEdit});
 
   static Future<void> show(BuildContext context, {Expense? expenseToEdit}) {
@@ -31,7 +33,6 @@ class AddExpenseSheet extends ConsumerStatefulWidget {
 class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _noteController = TextEditingController();
-
   late String _selectedCurrency;
   late DateTime _selectedDate;
   String? _selectedCategoryId;
@@ -41,18 +42,19 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
   void initState() {
     super.initState();
     final profile = ref.read(currentProfileProvider).value;
-    final base = profile?.baseCurrency ?? 'USD';
+    final base = profile?.baseCurrency ?? 'BDT';
 
     if (widget.expenseToEdit != null) {
       final exp = widget.expenseToEdit!;
       _amountController.text = exp.amount.toString();
       _noteController.text = exp.note ?? '';
       _selectedCurrency = exp.currency;
-      _selectedDate = exp.date;
+      _selectedDate = exp.date.toLocal();
       _selectedCategoryId = exp.category;
     } else {
       _selectedCurrency = base;
       _selectedDate = DateTime.now();
+      _selectedCategoryId = 'food';
     }
   }
 
@@ -103,8 +105,8 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
           picked.year,
           picked.month,
           picked.day,
-          _selectedDate.hour,
-          _selectedDate.minute,
+          DateTime.now().hour,
+          DateTime.now().minute,
         );
       });
     }
@@ -124,17 +126,15 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
 
     final catId = _selectedCategoryId ?? 'food';
     final profile = ref.read(currentProfileProvider).value;
-    final baseCurrency = profile?.baseCurrency ?? 'USD';
+    final baseCurrency = profile?.baseCurrency ?? 'BDT';
+
+    // 1. Exact UID resolve kora
+    final sbUser = Supabase.instance.client.auth.currentUser;
+    final String uid = sbUser?.id ?? ref.read(currentUserIdProvider);
 
     setState(() => _isSubmitting = true);
-
     try {
-      final authState = ref.read(authStateProvider);
-      final uid = authState.value?.uid ?? 'local_user';
-
-      // Convert amount to base currency via cached/live exchange rates
-      final exchangeRatesAsync =
-          ref.read(exchangeRatesProvider(baseCurrency));
+      final exchangeRatesAsync = ref.read(exchangeRatesProvider(baseCurrency));
       final exchangeRates = exchangeRatesAsync.value;
 
       double amountInBase = amount;
@@ -148,7 +148,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
 
       final expenseRepo = ref.read(expenseRepositoryProvider);
       final expenseId = widget.expenseToEdit?.id ?? const Uuid().v4();
-
       final expense = Expense(
         id: expenseId,
         amount: amount,
@@ -168,19 +167,10 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
         await expenseRepo.addExpense(uid, expense);
       }
 
-      // Check for notifications: evaluate real-time overspend alert
-      final stats = ref.read(dailyBudgetStatsProvider);
-      if (stats != null && stats.dailyCost > 0) {
-        final newTodaySpent = stats.todaySpent + amountInBase;
-        if (newTodaySpent > stats.dailyCost) {
-          final over = newTodaySpent - stats.dailyCost;
-          final notifService = ref.read(notificationServiceProvider);
-          await notifService.notifyDailyOverspend(
-            overAmount: over,
-            currencyCode: baseCurrency,
-          );
-        }
-      }
+      // 2. UI Refresh
+      ref.invalidate(expensesProvider);
+      ref.invalidate(dailyBudgetStatsProvider);
+      ref.invalidate(selectedDayBudgetStatsProvider);
 
       if (!mounted) return;
       final overlayState = Overlay.maybeOf(context, rootOverlay: true);
@@ -214,26 +204,38 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final profile = ref.watch(currentProfileProvider).value;
-    final baseCurrency = profile?.baseCurrency ?? 'USD';
-    final categories = ref.watch(categoriesProvider).value ?? [];
-    final visibleCategories = categories.where((c) => !c.isHidden).toList();
+    final baseCurrency = profile?.baseCurrency ?? 'BDT';
 
-    // Default category selection if not set
-    if (_selectedCategoryId == null && visibleCategories.isNotEmpty) {
+    final categoriesAsync = ref.watch(categoriesProvider);
+    final rawCategories = categoriesAsync.value ?? [];
+
+    final List<CategoryItem> categories = rawCategories.isNotEmpty
+        ? rawCategories
+        : AppConstants.presetCategoryData
+        .map((c) => CategoryItem(
+      id: c['id'] as String,
+      name: c['name'] as String,
+      iconCodePoint: c['icon'] as int,
+      colorValue: c['color'] as int,
+      isCustom: false,
+      isHidden: false,
+    ))
+        .toList();
+
+    final visibleCategories = categories.where((c) => !c.isHidden).toList();
+    if ((_selectedCategoryId == null || _selectedCategoryId!.isEmpty) &&
+        visibleCategories.isNotEmpty) {
       _selectedCategoryId = visibleCategories.first.id;
     }
 
-    final exchangeRates =
-        ref.watch(exchangeRatesProvider(baseCurrency)).value;
-
+    final exchangeRates = ref.watch(exchangeRatesProvider(baseCurrency)).value;
     final parsedAmount =
-        MathExpressionEvaluator.tryEvaluate(_amountController.text.trim());
+    MathExpressionEvaluator.tryEvaluate(_amountController.text.trim());
     final enteredAmount = parsedAmount ?? 0.0;
-    final convertedAmount =
-        (_selectedCurrency != baseCurrency && exchangeRates != null)
-            ? exchangeRates.convert(enteredAmount,
-                from: _selectedCurrency, to: baseCurrency)
-            : enteredAmount;
+    final convertedAmount = (_selectedCurrency != baseCurrency && exchangeRates != null)
+        ? exchangeRates.convert(enteredAmount,
+        from: _selectedCurrency, to: baseCurrency)
+        : enteredAmount;
 
     return Container(
       decoration: BoxDecoration(
@@ -251,7 +253,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Drag handle
             Center(
               child: Container(
                 width: 44,
@@ -263,20 +264,15 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  widget.expenseToEdit != null
-                      ? 'Edit Expense'
-                      : 'Add Expense',
+                  widget.expenseToEdit != null ? 'Edit Expense' : 'Add Expense',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                // Date picker button
                 TextButton.icon(
                   onPressed: _pickDate,
                   icon: const Icon(Icons.calendar_today_rounded, size: 16),
@@ -288,8 +284,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
               ],
             ),
             const SizedBox(height: 12),
-
-            // Amount Input with Currency Dropdown
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
@@ -305,7 +299,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
                 children: [
                   Row(
                     children: [
-                      // Currency Selector
                       DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
                           value: _selectedCurrency,
@@ -329,14 +322,16 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // Amount TextField
                       Expanded(
                         child: TextField(
                           controller: _amountController,
                           autofocus: widget.expenseToEdit == null,
                           textInputAction: TextInputAction.done,
                           onSubmitted: (_) => _evaluateAmount(),
-                          keyboardType: TextInputType.text,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(RegExp(r'[\d\.\+\-\*xX \s]')),
+                          ],
                           textAlign: TextAlign.end,
                           style: theme.textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.w800,
@@ -404,8 +399,7 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
                       _buildMathChip('=', isAction: true),
                     ],
                   ),
-                  if (_selectedCurrency != baseCurrency &&
-                      enteredAmount > 0) ...[
+                  if (_selectedCurrency != baseCurrency && enteredAmount > 0) ...[
                     const Divider(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -419,7 +413,7 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
                         Text(
                           CurrencyFormatter.format(convertedAmount,
                               currencyCode: baseCurrency),
-                          style: theme.textTheme.titleSmall?.copyWith(
+                          style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             color: AppColors.withinBudget,
                           ),
@@ -431,8 +425,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
               ),
             ),
             const SizedBox(height: 18),
-
-            // Category Picker (Chips/Grid with icons & colors)
             Text(
               'Category',
               style: theme.textTheme.titleSmall?.copyWith(
@@ -449,7 +441,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
                 itemBuilder: (context, index) {
                   final cat = visibleCategories[index];
                   final isSelected = cat.id == _selectedCategoryId;
-
                   return InkWell(
                     onTap: () => setState(() => _selectedCategoryId = cat.id),
                     borderRadius: BorderRadius.circular(16),
@@ -461,8 +452,8 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
                         color: isSelected
                             ? cat.color.withAlpha(40)
                             : (isDark
-                                ? AppColors.surfaceElevatedDark
-                                : AppColors.surfaceElevatedLight),
+                            ? AppColors.surfaceElevatedDark
+                            : AppColors.surfaceElevatedLight),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                           color: isSelected ? cat.color : Colors.transparent,
@@ -497,8 +488,8 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
                               color: isSelected
                                   ? cat.color
                                   : (isDark
-                                      ? AppColors.textPrimaryDark
-                                      : AppColors.textPrimaryLight),
+                                  ? AppColors.textPrimaryDark
+                                  : AppColors.textPrimaryLight),
                             ),
                           ),
                         ],
@@ -509,8 +500,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Note (Optional)
             TextField(
               controller: _noteController,
               textCapitalization: TextCapitalization.sentences,
@@ -521,8 +510,6 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Save Button
             if (_isSubmitting)
               const Center(child: CircularProgressIndicator())
             else
@@ -565,8 +552,8 @@ class _AddExpenseSheetState extends ConsumerState<AddExpenseSheet> {
               color: isAction
                   ? Colors.white
                   : (isDark
-                      ? AppColors.textPrimaryDark
-                      : AppColors.textPrimaryLight),
+                  ? AppColors.textPrimaryDark
+                  : AppColors.textPrimaryLight),
             ),
           ),
         ),

@@ -4,21 +4,26 @@ class AppDateUtils {
   AppDateUtils._();
 
   static DateTime startOfDay(DateTime date) {
-    return DateTime(date.year, date.month, date.day);
+    final d = date.toLocal();
+    return DateTime(d.year, d.month, d.day);
   }
 
   static DateTime endOfDay(DateTime date) {
-    return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+    final d = date.toLocal();
+    return DateTime(d.year, d.month, d.day, 23, 59, 59, 999);
   }
 
   static bool isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
+    final la = a.toLocal();
+    final lb = b.toLocal();
+    return la.year == lb.year && la.month == lb.month && la.day == lb.day;
   }
 
   /// Start of the week (Monday 00:00:00)
   static DateTime startOfWeek(DateTime date) {
-    final weekday = date.weekday; // 1 = Monday, 7 = Sunday
-    final monday = date.subtract(Duration(days: weekday - 1));
+    final d = date.toLocal();
+    final weekday = d.weekday; // 1 = Monday, 7 = Sunday
+    final monday = d.subtract(Duration(days: weekday - 1));
     return startOfDay(monday);
   }
 

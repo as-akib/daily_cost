@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 const String _themeModeKey = 'dailycost_theme_mode';
 
 class ThemeModeNotifier extends StateNotifier<ThemeMode> {
-  ThemeModeNotifier() : super(ThemeMode.system) {
+  ThemeModeNotifier() : super(ThemeMode.light) {
     _loadThemeMode();
   }
 
@@ -18,7 +18,7 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
           state = ThemeMode.light;
         } else if (modeString == 'dark') {
           state = ThemeMode.dark;
-        } else {
+        } else if (modeString == 'system') {
           state = ThemeMode.system;
         }
       }

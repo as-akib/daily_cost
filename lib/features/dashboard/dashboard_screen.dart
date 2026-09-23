@@ -54,14 +54,14 @@ class DashboardScreen extends ConsumerWidget {
       context: context,
       initialDate: currentDate.isAfter(now) ? now : currentDate,
       firstDate: DateTime(2020),
-      lastDate: DateTime(now.year, now.month, now.day), // Only past dates & today
+      lastDate: DateTime(now.year, now.month, now.day),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: Theme.of(context).colorScheme.copyWith(
-                  primary: AppColors.primary,
-                  onPrimary: Colors.white,
-                ),
+              primary: AppColors.primary,
+              onPrimary: Colors.white,
+            ),
           ),
           child: child!,
         );
@@ -82,13 +82,12 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-
     final profileAsync = ref.watch(currentProfileProvider);
     final stats = ref.watch(dailyBudgetStatsProvider);
     final dayStats = ref.watch(selectedDayBudgetStatsProvider);
     final selectedDate = ref.watch(selectedDashboardDateProvider);
     final profile = profileAsync.value;
-    final baseCurrency = profile?.baseCurrency ?? 'USD';
+    final baseCurrency = profile?.baseCurrency ?? 'BDT';
     final categories = ref.watch(categoriesProvider).value ?? [];
     final authUser = ref.watch(authStateProvider).value;
 
@@ -103,16 +102,14 @@ class DashboardScreen extends ConsumerWidget {
     final progress = dailyCost > 0 ? (daySpent / dailyCost) : 0.0;
     final isOver = dayStats.isOverBudget;
     final isToday = dayStats.isToday;
-
-    // Greeting logic: Display First Name ONLY for Google Sign-in users
     final isGoogleUser = authUser?.isGoogle == true && authUser?.isAnonymous == false;
     final firstName = isGoogleUser
         ? (authUser?.firstName ?? authUser?.displayName?.split(' ').first)
         : null;
     final greeting = _getGreeting();
     final greetingText = firstName != null && firstName.isNotEmpty
-        ? '$greeting, $firstName 👋'
-        : '$greeting 👋';
+        ? '$greeting, $firstName'
+        : greeting;
     final greetingIcon = _getGreetingIcon();
     final todayQuote = DailyQuotes.getTodayQuote();
     final unreadNotificationCount = ref.watch(unreadNotificationCountProvider);
@@ -141,7 +138,6 @@ class DashboardScreen extends ConsumerWidget {
           ],
         ),
         actions: [
-          // VIP / Pro Button
           InkWell(
             onTap: () {
               Navigator.of(context).push(
@@ -154,11 +150,13 @@ class DashboardScreen extends ConsumerWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
                 gradient: const LinearGradient(
-                  colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+                  colors: [Color(0xFFFFD700), Color(0xFFD97706), Color(0xFFB45309)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFF59E0B).withAlpha(80),
+                    color: const Color(0xFFF59E0B).withAlpha(100),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -170,12 +168,12 @@ class DashboardScreen extends ConsumerWidget {
                   Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 16),
                   SizedBox(width: 4),
                   Text(
-                    'PRO',
+                    'VIP',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
                       fontSize: 11,
-                      letterSpacing: 0.5,
+                      letterSpacing: 0.8,
                     ),
                   ),
                 ],
@@ -183,8 +181,6 @@ class DashboardScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 4),
-
-          // Notification Bell Button with 9+ badge
           IconButton(
             icon: Stack(
               clipBehavior: Clip.none,
@@ -245,6 +241,7 @@ class DashboardScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.invalidate(currentProfileProvider);
           ref.invalidate(expensesProvider);
+          ref.invalidate(categoriesProvider);
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -252,19 +249,16 @@ class DashboardScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ===================== GREETING & DAILY QUOTE CARD =====================
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
                   color: isDark
                       ? AppColors.surfaceElevatedDark
                       : AppColors.surfaceLight,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color:
-                        isDark ? AppColors.borderDark : AppColors.borderLight,
+                    color: isDark ? AppColors.borderDark : AppColors.borderLight,
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -277,7 +271,6 @@ class DashboardScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top greeting row with cycle badge
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -325,10 +318,7 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 10),
-
-                    // Daily Financial Quote Strip
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 9),
@@ -374,53 +364,33 @@ class DashboardScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-
               // ===================== 1. MODERN HERO DAILY COST CARD =====================
               Container(
                 decoration: BoxDecoration(
-                  gradient: isOver
-                      ? AppColors.dangerGradient
-                      : (isDark
-                          ? AppColors.heroGradientDark
-                          : AppColors.heroGradient),
                   borderRadius: BorderRadius.circular(28),
                   boxShadow: [
                     BoxShadow(
                       color: (isOver ? AppColors.overBudget : AppColors.primary)
-                          .withAlpha(isDark ? 70 : 110),
-                      blurRadius: 26,
-                      offset: const Offset(0, 10),
-                    ),
-                    BoxShadow(
-                      color: Colors.black.withAlpha(isDark ? 60 : 25),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
+                          .withAlpha(isDark ? 50 : 80),
+                      blurRadius: 22,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(28),
-                  child: Stack(
-                    children: [
-                      // Decorative background radial accent
-                      Positioned(
-                        top: -40,
-                        right: -40,
-                        child: Container(
-                          width: 160,
-                          height: 160,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withAlpha(20),
-                          ),
-                        ),
-                      ),
+                  child: CustomPaint(
+                    painter: TopHeroCardBackgroundPainter(
+                      isDark: isDark,
+                      isOver: isOver,
+                    ),
+                    child: Stack(
+                      children: [
                       Padding(
                         padding: const EdgeInsets.all(22),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Top Tag Row
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -446,8 +416,8 @@ class DashboardScreen extends ConsumerWidget {
                                         isOver
                                             ? 'OVER BUDGET'
                                             : (isToday
-                                                ? 'DAILY ALLOWANCE'
-                                                : 'DAILY BUDGET • ${DateFormat('d MMM').format(selectedDate).toUpperCase()}'),
+                                            ? 'DAILY ALLOWANCE'
+                                            : 'DAILY BUDGET - ${DateFormat('d MMM').format(selectedDate).toUpperCase()}'),
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 11,
@@ -463,10 +433,10 @@ class DashboardScreen extends ConsumerWidget {
                                       horizontal: 10, vertical: 4),
                                   decoration: BoxDecoration(
                                     color: (isOver
-                                            ? Colors.black.withAlpha(50)
-                                            : (progress > 0.85
-                                                ? AppColors.nearBudget
-                                                : AppColors.withinBudget))
+                                        ? Colors.black.withAlpha(50)
+                                        : (progress > 0.85
+                                        ? AppColors.nearBudget
+                                        : AppColors.withinBudget))
                                         .withAlpha(45),
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
@@ -476,10 +446,10 @@ class DashboardScreen extends ConsumerWidget {
                                   ),
                                   child: Text(
                                     isOver
-                                        ? '🚨 Exceeded'
+                                        ? 'Exceeded'
                                         : (progress > 0.85
-                                            ? '⚡ Caution'
-                                            : '🎉 On Track'),
+                                        ? 'Caution'
+                                        : 'On Track'),
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 11,
@@ -490,14 +460,12 @@ class DashboardScreen extends ConsumerWidget {
                               ],
                             ),
                             const SizedBox(height: 16),
-
-                            // Main Hero Balance
                             Text(
                               isOver
                                   ? 'Exceeded limit by'
                                   : (isToday
-                                      ? 'Remaining to spend today'
-                                      : 'Remaining on ${DateFormat('d MMMM').format(selectedDate)}'),
+                                  ? 'Remaining to spend today'
+                                  : 'Remaining on ${DateFormat('d MMMM').format(selectedDate)}'),
                               style: TextStyle(
                                 color: Colors.white.withAlpha(210),
                                 fontSize: 13,
@@ -526,14 +494,12 @@ class DashboardScreen extends ConsumerWidget {
                               ),
                             ),
                             const SizedBox(height: 18),
-
-                            // Glowing Gradient Progress Bar
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 Row(
                                   mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
+                                  MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       '${(progress.clamp(0.0, 9.99) * 100).toInt()}% used',
@@ -572,30 +538,15 @@ class DashboardScreen extends ConsumerWidget {
                                             Container(
                                               width: fillWidth,
                                               decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  colors: isOver
-                                                      ? [
-                                                          const Color(
-                                                              0xFFFCA5A5),
-                                                          const Color(
-                                                              0xFFEF4444)
-                                                        ]
-                                                      : (progress > 0.85
-                                                          ? [
-                                                              const Color(
-                                                                  0xFFFDE68A),
-                                                              const Color(
-                                                                  0xFFF59E0B)
-                                                            ]
-                                                          : [
-                                                              const Color(
-                                                                  0xFFA7F3D0),
-                                                              const Color(
-                                                                  0xFF10B981)
-                                                            ]),
-                                                ),
+                                                color: isOver
+                                                    ? const Color(0xFFEF4444)
+                                                    : (progress > 0.85
+                                                    ? AppColors.nearBudget
+                                                    : (isDark
+                                                    ? AppColors.primaryLight
+                                                    : Colors.white)),
                                                 borderRadius:
-                                                    BorderRadius.circular(10),
+                                                BorderRadius.circular(10),
                                               ),
                                             ),
                                           ],
@@ -607,8 +558,6 @@ class DashboardScreen extends ConsumerWidget {
                               ],
                             ),
                             const SizedBox(height: 18),
-
-                            // Micro-Stats Footer Strip
                             Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14, vertical: 10),
@@ -618,7 +567,7 @@ class DashboardScreen extends ConsumerWidget {
                               ),
                               child: Row(
                                 mainAxisAlignment:
-                                    MainAxisAlignment.spaceAround,
+                                MainAxisAlignment.spaceAround,
                                 children: [
                                   _buildCardMicroStat(
                                     label: isToday
@@ -644,7 +593,7 @@ class DashboardScreen extends ConsumerWidget {
                                   ),
                                   _buildCardMicroStat(
                                     label:
-                                        isToday ? 'Days Left' : 'Cycle Day',
+                                    isToday ? 'Days Left' : 'Cycle Day',
                                     value: isToday
                                         ? '${stats.cycle.totalDays - stats.daysElapsedInCycle} days'
                                         : 'Day ${dayStats.daysElapsedInCycle}/${dayStats.cycle.totalDays}',
@@ -659,13 +608,10 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-
+            ),
               const SizedBox(height: 16),
-
-              // ===================== 2. FRIENDLY STATUS BANNER =====================
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
                   color: isOver
                       ? AppColors.overBudget.withAlpha(25)
@@ -703,10 +649,7 @@ class DashboardScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-
               const SizedBox(height: 20),
-
-              // ===================== 3. AT-A-GLANCE TOTALS =====================
               Row(
                 children: [
                   _buildStatTile(
@@ -738,8 +681,6 @@ class DashboardScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 24),
-
-              // ===================== DATE SELECTOR & TIMELINE CAROUSEL =====================
               _buildDateSelectorCarousel(
                 context,
                 ref,
@@ -747,10 +688,7 @@ class DashboardScreen extends ConsumerWidget {
                 isToday: isToday,
                 isDark: isDark,
               ),
-
               const SizedBox(height: 20),
-
-              // ===================== 4. TODAY'S / SELECTED DAY'S EXPENSES =====================
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -775,7 +713,6 @@ class DashboardScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 12),
-
               if (dayStats.expenses.isEmpty)
                 Card(
                   child: Padding(
@@ -821,12 +758,19 @@ class DashboardScreen extends ConsumerWidget {
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final exp = dayStats.expenses[index];
-                    final cat = categories
-                        .where((c) => c.id == exp.category)
-                        .firstOrNull;
-                    final catColor = cat?.color ?? AppColors.catOther;
-                    final catIcon = cat?.iconData ?? Icons.more_horiz_rounded;
-                    final catName = cat?.name ?? exp.category;
+
+                    // Unified Intelligent Category matching
+                    final catLower = exp.category.toLowerCase().trim();
+                    final cat = categories.where((c) {
+                      return c.id.toLowerCase() == catLower ||
+                          c.name.toLowerCase() == catLower ||
+                          catLower.contains(c.id.toLowerCase()) ||
+                          c.id.toLowerCase().contains(catLower);
+                    }).firstOrNull;
+
+                    final catColor = cat?.color ?? _getPresetColor(catLower);
+                    final catIcon = cat?.iconData ?? _getPresetIcon(catLower);
+                    final catName = cat?.name ?? _getPresetName(catLower);
 
                     return Dismissible(
                       key: Key(exp.id),
@@ -840,7 +784,7 @@ class DashboardScreen extends ConsumerWidget {
                       },
                       onDismissed: (direction) async {
                         final auth = ref.read(authStateProvider);
-                        final uid = auth.value?.uid ?? 'local_user';
+                        final uid = auth.value?.uid ?? 'guest_user';
                         await ref
                             .read(expenseRepositoryProvider)
                             .deleteExpense(uid, exp.id);
@@ -849,7 +793,7 @@ class DashboardScreen extends ConsumerWidget {
                             context,
                             title: 'Expense Deleted',
                             message:
-                                '${CurrencyFormatter.format(exp.amountInBaseCurrency, currencyCode: baseCurrency)} removed',
+                            '${CurrencyFormatter.format(exp.amountInBaseCurrency, currencyCode: baseCurrency)} removed',
                             type: TopNotificationType.info,
                             onUndo: () async {
                               await ref
@@ -899,7 +843,7 @@ class DashboardScreen extends ConsumerWidget {
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
-                            '${AppDateUtils.formatRelative(exp.date)} • $catName',
+                            '${AppDateUtils.formatRelative(exp.date)} - $catName',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: isDark
                                   ? AppColors.textSecondaryDark
@@ -940,6 +884,42 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  IconData _getPresetIcon(String id) {
+    if (id.contains('food')) return Icons.restaurant_rounded;
+    if (id.contains('trans')) return Icons.directions_bus_rounded;
+    if (id.contains('bill')) return Icons.receipt_long_rounded;
+    if (id.contains('shop')) return Icons.shopping_bag_rounded;
+    if (id.contains('ent')) return Icons.movie_rounded;
+    if (id.contains('health')) return Icons.local_hospital_rounded;
+    if (id.contains('groc')) return Icons.local_grocery_store_rounded;
+    if (id.contains('rent')) return Icons.home_rounded;
+    return Icons.category_rounded;
+  }
+
+  Color _getPresetColor(String id) {
+    if (id.contains('food')) return AppColors.catFood;
+    if (id.contains('trans')) return AppColors.catTransport;
+    if (id.contains('bill')) return AppColors.catBills;
+    if (id.contains('shop')) return AppColors.catShopping;
+    if (id.contains('ent')) return AppColors.catEntertainment;
+    if (id.contains('health')) return AppColors.catHealth;
+    if (id.contains('groc')) return AppColors.catGroceries;
+    if (id.contains('rent')) return AppColors.catRent;
+    return AppColors.catOther;
+  }
+
+  String _getPresetName(String id) {
+    if (id.contains('food')) return 'Food & Dining';
+    if (id.contains('trans')) return 'Transport';
+    if (id.contains('bill')) return 'Bills & Utilities';
+    if (id.contains('shop')) return 'Shopping';
+    if (id.contains('ent')) return 'Entertainment';
+    if (id.contains('health')) return 'Health & Fitness';
+    if (id.contains('groc')) return 'Groceries';
+    if (id.contains('rent')) return 'Rent & Housing';
+    return id.toUpperCase();
+  }
+
   Widget _buildCardMicroStat({
     required String label,
     required String value,
@@ -971,16 +951,15 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildStatTile(
-    BuildContext context, {
-    required String label,
-    required double amount,
-    required String currencyCode,
-    required Color color,
-    required IconData icon,
-  }) {
+      BuildContext context, {
+        required String label,
+        required double amount,
+        required String currencyCode,
+        required Color color,
+        required IconData icon,
+      }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
@@ -1030,27 +1009,22 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildDateSelectorCarousel(
-    BuildContext context,
-    WidgetRef ref, {
-    required DateTime selectedDate,
-    required bool isToday,
-    required bool isDark,
-  }) {
+      BuildContext context,
+      WidgetRef ref, {
+        required DateTime selectedDate,
+        required bool isToday,
+        required bool isDark,
+      }) {
     final now = DateTime.now();
     final today = AppDateUtils.startOfDay(now);
     final normalizedSelected = AppDateUtils.startOfDay(selectedDate);
-
-    // Build list of recent past days (Today, Yesterday, -2, -3, -4, -5, -6)
     final recentDays = List.generate(7, (index) {
       return AppDateUtils.startOfDay(now.subtract(Duration(days: index)));
     });
-
     final bool isCustomOlderDate = !recentDays.any((d) => d.isAtSameMomentAs(normalizedSelected));
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header Row: Section Label + Active Date Pill
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -1106,22 +1080,17 @@ class DashboardScreen extends ConsumerWidget {
               ),
           ],
         ),
-
         const SizedBox(height: 10),
-
-        // Horizontal Carousel
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
           child: Row(
             children: [
-              // 7 Recent Days
               ...recentDays.map((date) {
                 final isSelected = date.isAtSameMomentAs(normalizedSelected);
                 final bool isDayToday = date.isAtSameMomentAs(today);
                 final bool isDayYesterday =
-                    date.isAtSameMomentAs(today.subtract(const Duration(days: 1)));
-
+                date.isAtSameMomentAs(today.subtract(const Duration(days: 1)));
                 final String label;
                 if (isDayToday) {
                   label = 'Today';
@@ -1130,9 +1099,7 @@ class DashboardScreen extends ConsumerWidget {
                 } else {
                   label = DateFormat('EEE').format(date);
                 }
-
                 final String dayNum = DateFormat('d MMM').format(date);
-
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: InkWell(
@@ -1144,31 +1111,24 @@ class DashboardScreen extends ConsumerWidget {
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
-                        gradient: isSelected
-                            ? const LinearGradient(
-                                colors: [Color(0xFF00BBA7), Color(0xFF0F766E)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              )
-                            : null,
-                        color: !isSelected
-                            ? (isDark
-                                ? AppColors.surfaceElevatedDark
-                                : AppColors.surfaceLight)
-                            : null,
+                        color: isSelected
+                            ? (isDark ? const Color(0xFF0F766E) : AppColors.primary)
+                            : (isDark
+                            ? AppColors.surfaceElevatedDark
+                            : AppColors.surfaceLight),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                           color: isSelected
-                              ? const Color(0xFF00BBA7)
+                              ? (isDark ? AppColors.primaryLight : AppColors.primary)
                               : (isDark ? AppColors.borderDark : AppColors.borderLight),
                           width: isSelected ? 1.5 : 1.0,
                         ),
                         boxShadow: [
                           BoxShadow(
                             color: isSelected
-                                ? const Color(0xFF00BBA7).withAlpha(isDark ? 80 : 60)
+                                ? AppColors.primary.withAlpha(isDark ? 70 : 50)
                                 : Colors.black.withAlpha(isDark ? 20 : 4),
-                            blurRadius: isSelected ? 10 : 4,
+                            blurRadius: isSelected ? 8 : 4,
                             offset: const Offset(0, 3),
                           ),
                         ],
@@ -1184,8 +1144,8 @@ class DashboardScreen extends ConsumerWidget {
                               color: isSelected
                                   ? Colors.white
                                   : (isDark
-                                      ? AppColors.textSecondaryDark
-                                      : AppColors.textSecondaryLight),
+                                  ? AppColors.textSecondaryDark
+                                  : AppColors.textSecondaryLight),
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -1197,8 +1157,8 @@ class DashboardScreen extends ConsumerWidget {
                               color: isSelected
                                   ? Colors.white
                                   : (isDark
-                                      ? AppColors.textPrimaryDark
-                                      : AppColors.textPrimaryLight),
+                                  ? AppColors.textPrimaryDark
+                                  : AppColors.textPrimaryLight),
                             ),
                           ),
                         ],
@@ -1207,28 +1167,22 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 );
               }),
-
-              // If a custom older date was selected via calendar picker
               if (isCustomOlderDate)
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF00BBA7), Color(0xFF0F766E)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                      color: isDark ? const Color(0xFF0F766E) : AppColors.primary,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: const Color(0xFF00BBA7),
+                        color: isDark ? AppColors.primaryLight : AppColors.primary,
                         width: 1.5,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF00BBA7).withAlpha(isDark ? 80 : 60),
-                          blurRadius: 10,
+                          color: AppColors.primary.withAlpha(isDark ? 70 : 50),
+                          blurRadius: 8,
                           offset: const Offset(0, 3),
                         ),
                       ],
@@ -1257,8 +1211,6 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
-
-              // Calendar Picker Action Button
               InkWell(
                 onTap: () => _pickDate(context, ref, selectedDate),
                 borderRadius: BorderRadius.circular(16),
@@ -1300,10 +1252,10 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Future<bool?> _confirmDeleteExpense(
-    BuildContext context,
-    Expense expense,
-    String baseCurrency,
-  ) {
+      BuildContext context,
+      Expense expense,
+      String baseCurrency,
+      ) {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1320,7 +1272,7 @@ class DashboardScreen extends ConsumerWidget {
           ],
         ),
         content: Text(
-          'Are you sure you want to remove "${expense.note?.isNotEmpty == true ? expense.note! : expense.category}" (${CurrencyFormatter.format(expense.amountInBaseCurrency, currencyCode: baseCurrency)}) from your expenses?',
+          'Are you sure you want to remove "${expense.note?.isNotEmpty == true ? expense.note! : expense.category}" (${CurrencyFormatter.format(expInBase(expense), currencyCode: baseCurrency)}) from your expenses?',
         ),
         actions: [
           TextButton(
@@ -1338,5 +1290,109 @@ class DashboardScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  double expInBase(Expense exp) {
+    return exp.amountInBaseCurrency > 0 ? exp.amountInBaseCurrency : exp.amount;
+  }
+}
+
+class TopHeroCardBackgroundPainter extends CustomPainter {
+  final bool isDark;
+  final bool isOver;
+
+  TopHeroCardBackgroundPainter({
+    required this.isDark,
+    required this.isOver,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+
+    // Base background paint
+    final baseGradient = LinearGradient(
+      colors: isOver
+          ? (isDark
+              ? [const Color(0xFF4C0519), const Color(0xFF881337), const Color(0xFF9F1239)]
+              : [const Color(0xFF991B1B), const Color(0xFFDC2626), const Color(0xFFEF4444)])
+          : (isDark
+              ? [const Color(0xFF022C22), const Color(0xFF064E3B), const Color(0xFF0F766E)]
+              : [const Color(0xFF047857), const Color(0xFF0D9488), const Color(0xFF14B8A6)]),
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
+
+    final paint = Paint()..shader = baseGradient.createShader(rect);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(28)),
+      paint,
+    );
+
+    // Decorative Layer 1: Glowing Radial Circle
+    final circlePaint1 = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          (isOver ? const Color(0xFFF87171) : (isDark ? const Color(0xFF2DD4BF) : Colors.white))
+              .withAlpha(isDark ? 40 : 50),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(size.width * 0.85, size.height * 0.15),
+        radius: size.width * 0.45,
+      ));
+    canvas.drawCircle(
+      Offset(size.width * 0.85, size.height * 0.15),
+      size.width * 0.45,
+      circlePaint1,
+    );
+
+    // Decorative Layer 2: Translucent Ring / Arc
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..color = Colors.white.withAlpha(22);
+    canvas.drawCircle(
+      Offset(size.width * 0.1, size.height * 0.85),
+      size.width * 0.35,
+      ringPaint,
+    );
+
+    final ringPaint2 = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = Colors.white.withAlpha(15);
+    canvas.drawCircle(
+      Offset(size.width * 0.1, size.height * 0.85),
+      size.width * 0.5,
+      ringPaint2,
+    );
+
+    // Decorative Layer 3: Curved Line Accent
+    final path = Path();
+    path.moveTo(0, size.height * 0.7);
+    path.quadraticBezierTo(
+      size.width * 0.4,
+      size.height * 0.3,
+      size.width,
+      size.height * 0.6,
+    );
+
+    final curvePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..color = Colors.white.withAlpha(25);
+    canvas.drawPath(path, curvePaint);
+
+    // Decorative Layer 4: Accent Dots
+    final dotPaint = Paint()
+      ..color = (isOver ? const Color(0xFFFECDD3) : const Color(0xFF99F6E4)).withAlpha(70);
+    canvas.drawCircle(Offset(size.width * 0.78, size.height * 0.75), 4, dotPaint);
+    canvas.drawCircle(Offset(size.width * 0.88, size.height * 0.45), 2.5, dotPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant TopHeroCardBackgroundPainter oldDelegate) {
+    return oldDelegate.isDark != isDark || oldDelegate.isOver != isOver;
   }
 }

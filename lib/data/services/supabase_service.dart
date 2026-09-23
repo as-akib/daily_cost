@@ -11,20 +11,56 @@ import '../../core/constants/app_constants.dart';
 class SupabaseService {
   final SupabaseClient? client;
 
-  // In-memory reactive state
   final Map<String, UserProfile> _localProfiles = {};
   final Map<String, List<Expense>> _localExpenses = {};
   final Map<String, List<CategoryItem>> _localCategories = {};
-
-  final Map<String, StreamController<UserProfile?>> _profileControllers = {};
-  final Map<String, StreamController<List<Expense>>> _expenseControllers = {};
-  final Map<String, StreamController<List<CategoryItem>>> _categoryControllers = {};
+  final Map<String, List<StreamController<UserProfile?>>> _profileControllers = {};
+  final Map<String, List<StreamController<List<Expense>>>> _expenseControllers = {};
+  final Map<String, List<StreamController<List<CategoryItem>>>> _categoryControllers = {};
 
   SupabaseService({this.client}) {
     _initLocalCache();
   }
 
   bool get isSupabaseAvailable => client != null;
+
+  void _notifyProfileSubscribers(String uid) {
+    final profile = _localProfiles[uid];
+    final list = List<StreamController<UserProfile?>>.from(_profileControllers[uid] ?? []);
+    for (final c in list) {
+      if (!c.isClosed) c.add(profile);
+    }
+  }
+
+  void _notifyExpenseSubscribers(String uid) {
+    final list = List<Expense>.from(_localExpenses[uid] ?? []);
+    list.sort((a, b) => b.date.compareTo(a.date));
+    final controllers = List<StreamController<List<Expense>>>.from(_expenseControllers[uid] ?? []);
+    for (final c in controllers) {
+      if (!c.isClosed) c.add(list);
+    }
+  }
+
+  void _notifyCategorySubscribers(String uid) {
+    final list = List<CategoryItem>.from(_localCategories[uid] ?? _getDefaultCategories());
+    final controllers = List<StreamController<List<CategoryItem>>>.from(_categoryControllers[uid] ?? []);
+    for (final c in controllers) {
+      if (!c.isClosed) c.add(list);
+    }
+  }
+
+  List<CategoryItem> _getDefaultCategories() {
+    return AppConstants.presetCategoryData
+        .map((c) => CategoryItem(
+      id: c['id'] as String,
+      name: c['name'] as String,
+      iconCodePoint: c['icon'] as int,
+      colorValue: c['color'] as int,
+      isCustom: false,
+      isHidden: false,
+    ))
+        .toList();
+  }
 
   Future<void> _initLocalCache() async {
     try {
@@ -45,6 +81,17 @@ class SupabaseService {
           final List list = val as List;
           _localExpenses[uid] = list
               .map((e) => Expense.fromMap(Map<String, dynamic>.from(e), ''))
+              .toList();
+        });
+      }
+
+      final categoriesJson = prefs.getString('dailycost_cache_categories');
+      if (categoriesJson != null) {
+        final Map<String, dynamic> decoded = jsonDecode(categoriesJson);
+        decoded.forEach((uid, val) {
+          final List list = val as List;
+          _localCategories[uid] = list
+              .map((c) => CategoryItem.fromMap(Map<String, dynamic>.from(c), ''))
               .toList();
         });
       }
@@ -75,25 +122,35 @@ class SupabaseService {
     } catch (_) {}
   }
 
+  Future<void> _persistCategories() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final Map<String, dynamic> map = {};
+      _localCategories.forEach((uid, categories) {
+        map[uid] = categories.map((c) => c.toMap()).toList();
+      });
+      await prefs.setString('dailycost_cache_categories', jsonEncode(map));
+    } catch (_) {}
+  }
+
   // ===================== PROFILES =====================
-
   Stream<UserProfile?> streamProfile(String uid) {
-    if (!_profileControllers.containsKey(uid)) {
-      _profileControllers[uid] = StreamController<UserProfile?>.broadcast();
-    }
-
-    // 1. Emit local cache immediately
-    final cached = _localProfiles[uid];
-    Timer.run(() {
-      _profileControllers[uid]?.add(cached);
-    });
-
-    // 2. Fetch from Supabase in background
-    if (isSupabaseAvailable) {
-      _fetchRemoteProfile(uid);
-    }
-
-    return _profileControllers[uid]!.stream;
+    late StreamController<UserProfile?> controller;
+    controller = StreamController<UserProfile?>.broadcast(
+      onListen: () {
+        // Immediate broadcast so router doesn't hang in loading
+        controller.add(_localProfiles[uid]);
+        if (isSupabaseAvailable) {
+          _fetchRemoteProfile(uid);
+        }
+      },
+    );
+    _profileControllers.putIfAbsent(uid, () => []);
+    _profileControllers[uid]!.add(controller);
+    controller.onCancel = () {
+      _profileControllers[uid]?.remove(controller);
+    };
+    return controller.stream;
   }
 
   Future<UserProfile?> getProfile(String uid) async {
@@ -108,249 +165,307 @@ class SupabaseService {
 
   Future<UserProfile?> _fetchRemoteProfile(String uid) async {
     try {
-      final response =
-          await client!.from('profiles').select().eq('id', uid).maybeSingle();
+      final response = await client!
+          .from('profiles')
+          .select()
+          .eq('id', uid)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 3));
+
       if (response != null) {
         final profile =
-            UserProfile.fromMap(Map<String, dynamic>.from(response), uid);
+        UserProfile.fromMap(Map<String, dynamic>.from(response), uid);
         _localProfiles[uid] = profile;
         _persistProfiles();
-        _profileControllers[uid]?.add(profile);
+        _notifyProfileSubscribers(uid);
         return profile;
+      } else {
+        _notifyProfileSubscribers(uid);
       }
     } catch (e) {
-      debugPrint('Supabase fetchProfile error: $e');
+      debugPrint('SUPABASE FETCH PROFILE: $e');
+      _notifyProfileSubscribers(uid);
     }
-    return null;
+    return _localProfiles[uid];
   }
 
-  Future<void> saveProfile(UserProfile profile, {String? email, String? displayName, String? photoUrl}) async {
-    final uid = profile.uid;
+  Future<void> saveProfile(
+      UserProfile profile, {
+        String? email,
+        String? displayName,
+        String? photoUrl,
+      }) async {
+    _localProfiles[profile.uid] = profile;
+    await _persistProfiles();
+    _notifyProfileSubscribers(profile.uid);
 
-    // Instant local update
-    _localProfiles[uid] = profile;
-    _profileControllers[uid]?.add(profile);
-    _persistProfiles();
-
-    // Background sync to Supabase
     if (isSupabaseAvailable) {
-      unawaited(_syncProfileToSupabase(profile, email: email, displayName: displayName, photoUrl: photoUrl));
-    }
-  }
+      try {
+        final currencyInfo = AppConstants.getCurrencyInfo(profile.baseCurrency);
+        final isAnon = profile.uid.startsWith('guest_') || profile.uid == 'guest_user';
 
-  Future<void> _syncProfileToSupabase(UserProfile profile, {String? email, String? displayName, String? photoUrl}) async {
-    try {
-      final payload = profile.toSupabaseMap(
-        email: email,
-        displayName: displayName,
-        photoUrl: photoUrl,
-      );
-      await client!.from('profiles').upsert(payload);
-    } catch (e) {
-      debugPrint('Supabase saveProfile error: $e');
+        final data = <String, dynamic>{
+          'id': profile.uid,
+          'base_currency': profile.baseCurrency,
+          'currency_symbol': currencyInfo.symbol,
+          'monthly_income': profile.monthlyIncome,
+          'savings_goal': profile.savingsGoal,
+          'fixed_costs': profile.fixedCosts.map((c) => c.toMap()).toList(),
+          'cycle_start_day': profile.cycleStartDay,
+          'is_onboarded': profile.isOnboardingCompleted,
+          'is_anonymous': isAnon,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        };
+        if (email != null) data['email'] = email;
+        if (displayName != null) data['display_name'] = displayName;
+        if (photoUrl != null) data['photo_url'] = photoUrl;
+
+        await client!.from('profiles').upsert(data).timeout(const Duration(seconds: 4));
+        debugPrint('SUPABASE SAVE PROFILE SUCCESS');
+      } catch (e) {
+        debugPrint('SUPABASE SAVE PROFILE ERROR: $e');
+      }
     }
   }
 
   // ===================== EXPENSES =====================
-
   Stream<List<Expense>> streamExpenses(String uid) {
-    if (!_expenseControllers.containsKey(uid)) {
-      _expenseControllers[uid] = StreamController<List<Expense>>.broadcast();
-    }
-
-    // 1. Emit local cache immediately
-    Timer.run(() {
-      final list = List<Expense>.from(_localExpenses[uid] ?? []);
-      list.sort((a, b) => b.date.compareTo(a.date));
-      _expenseControllers[uid]?.add(list);
-    });
-
-    // 2. Fetch from Supabase in background
-    if (isSupabaseAvailable) {
-      _fetchRemoteExpenses(uid);
-    }
-
-    return _expenseControllers[uid]!.stream;
+    late StreamController<List<Expense>> controller;
+    controller = StreamController<List<Expense>>.broadcast(
+      onListen: () {
+        controller.add(_localExpenses[uid] ?? []);
+        if (isSupabaseAvailable) {
+          _fetchRemoteExpenses(uid);
+        }
+      },
+    );
+    _expenseControllers.putIfAbsent(uid, () => []);
+    _expenseControllers[uid]!.add(controller);
+    controller.onCancel = () {
+      _expenseControllers[uid]?.remove(controller);
+    };
+    return controller.stream;
   }
 
-  Future<List<Expense>> _fetchRemoteExpenses(String uid) async {
+  Future<void> _fetchRemoteExpenses(String uid) async {
     try {
       final response = await client!
           .from('expenses')
           .select()
           .eq('user_id', uid)
-          .order('date', ascending: false);
+          .timeout(const Duration(seconds: 3));
 
       final List list = response as List;
-      final expenses = list
-          .map((e) => Expense.fromMap(Map<String, dynamic>.from(e), e['id'] ?? ''))
+      final parsed = list
+          .map((e) => Expense.fromMap(Map<String, dynamic>.from(e), ''))
           .toList();
 
-      _localExpenses[uid] = expenses;
-      _persistExpenses();
-      _expenseControllers[uid]?.add(expenses);
-      return expenses;
+      final existingMap = <String, Expense>{};
+      for (final exp in parsed) {
+        existingMap[exp.id] = exp;
+      }
+      for (final local in (_localExpenses[uid] ?? [])) {
+        if (!existingMap.containsKey(local.id)) {
+          existingMap[local.id] = local;
+        }
+      }
+
+      final merged = existingMap.values.toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+
+      _localExpenses[uid] = merged;
+      await _persistExpenses();
+      _notifyExpenseSubscribers(uid);
     } catch (e) {
-      debugPrint('Supabase fetchExpenses error: $e');
-      return _localExpenses[uid] ?? [];
+      debugPrint('SUPABASE FETCH EXPENSES ERROR: $e');
+      _notifyExpenseSubscribers(uid);
     }
   }
 
   Future<void> addExpense(String uid, Expense expense) async {
-    final id = expense.id.isEmpty
-        ? 'exp_${DateTime.now().millisecondsSinceEpoch}'
-        : expense.id;
-    final toSave = expense.copyWith(id: id);
+    final list = _localExpenses[uid] ?? [];
+    list.removeWhere((e) => e.id == expense.id);
+    list.insert(0, expense);
+    _localExpenses[uid] = list;
+    await _persistExpenses();
+    _notifyExpenseSubscribers(uid);
 
-    // 1. Instant local update
-    _localExpenses.putIfAbsent(uid, () => []);
-    _localExpenses[uid]!.removeWhere((e) => e.id == id);
-    _localExpenses[uid]!.add(toSave);
-
-    final sorted = List<Expense>.from(_localExpenses[uid]!);
-    sorted.sort((a, b) => b.date.compareTo(a.date));
-    _expenseControllers[uid]?.add(sorted);
-    _persistExpenses();
-
-    // 2. Background sync to Supabase (non-blocking)
     if (isSupabaseAvailable) {
-      unawaited(_syncAddExpense(uid, toSave));
-    }
-  }
+      try {
+        final insertData = <String, dynamic>{
+          'id': expense.id,
+          'user_id': uid,
+          'amount': expense.amount,
+          'currency': expense.currency,
+          'amount_in_base_currency': expense.amountInBaseCurrency,
+          'category': expense.category,
+          'note': expense.note ?? '',
+          'date': expense.date.toUtc().toIso8601String(),
+          'created_at': expense.createdAt.toUtc().toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        };
 
-  Future<void> _syncAddExpense(String uid, Expense expense) async {
-    try {
-      await client!.from('expenses').upsert(expense.toSupabaseMap(uid));
-    } catch (e) {
-      debugPrint('Supabase addExpense error: $e');
+        await client!.from('expenses').upsert(insertData).timeout(const Duration(seconds: 4));
+        debugPrint('SUPABASE ADD EXPENSE SUCCESS');
+      } catch (e) {
+        debugPrint('SUPABASE ADD EXPENSE ERROR: $e');
+      }
     }
   }
 
   Future<void> updateExpense(String uid, Expense expense) async {
-    await addExpense(uid, expense);
-  }
+    final list = _localExpenses[uid] ?? [];
+    final idx = list.indexWhere((e) => e.id == expense.id);
+    if (idx != -1) {
+      list[idx] = expense;
+      _localExpenses[uid] = list;
+      await _persistExpenses();
+      _notifyExpenseSubscribers(uid);
+    }
 
-  Future<void> deleteExpense(String uid, String expenseId) async {
-    // 1. Instant local removal
-    _localExpenses[uid]?.removeWhere((e) => e.id == expenseId);
-    final sorted = List<Expense>.from(_localExpenses[uid] ?? []);
-    sorted.sort((a, b) => b.date.compareTo(a.date));
-    _expenseControllers[uid]?.add(sorted);
-    _persistExpenses();
-
-    // 2. Background delete in Supabase (non-blocking)
     if (isSupabaseAvailable) {
-      unawaited(_syncDeleteExpense(expenseId));
+      try {
+        await client!.from('expenses').update({
+          'amount': expense.amount,
+          'currency': expense.currency,
+          'amount_in_base_currency': expense.amountInBaseCurrency,
+          'category': expense.category,
+          'note': expense.note ?? '',
+          'date': expense.date.toUtc().toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        }).eq('id', expense.id);
+      } catch (e) {
+        debugPrint('SUPABASE UPDATE EXPENSE ERROR: $e');
+      }
     }
   }
 
-  Future<void> _syncDeleteExpense(String expenseId) async {
-    try {
-      await client!.from('expenses').delete().eq('id', expenseId);
-    } catch (e) {
-      debugPrint('Supabase deleteExpense error: $e');
+  Future<void> deleteExpense(String uid, String expenseId) async {
+    final list = _localExpenses[uid] ?? [];
+    list.removeWhere((e) => e.id == expenseId);
+    _localExpenses[uid] = list;
+    await _persistExpenses();
+    _notifyExpenseSubscribers(uid);
+
+    if (isSupabaseAvailable) {
+      try {
+        await client!.from('expenses').delete().eq('id', expenseId);
+      } catch (e) {
+        debugPrint('SUPABASE DELETE EXPENSE ERROR: $e');
+      }
     }
   }
 
   // ===================== CATEGORIES =====================
-
   Stream<List<CategoryItem>> streamCategories(String uid) {
-    if (!_categoryControllers.containsKey(uid)) {
-      _categoryControllers[uid] =
-          StreamController<List<CategoryItem>>.broadcast();
-    }
-
-    final initialList = _localCategories[uid] ??
-        AppConstants.presetCategoryData
-            .map((c) => CategoryItem(
-                  id: c['id'] as String,
-                  name: c['name'] as String,
-                  iconCodePoint: c['icon'] as int,
-                  colorValue: c['color'] as int,
-                  isCustom: false,
-                  isHidden: false,
-                ))
-            .toList();
-
-    _localCategories[uid] = initialList;
-
-    Timer.run(() {
-      _categoryControllers[uid]?.add(initialList);
-    });
-
-    if (isSupabaseAvailable) {
-      _fetchRemoteCategories(uid);
-    }
-
-    return _categoryControllers[uid]!.stream;
+    late StreamController<List<CategoryItem>> controller;
+    controller = StreamController<List<CategoryItem>>.broadcast(
+      onListen: () {
+        if (!_localCategories.containsKey(uid) || _localCategories[uid]!.isEmpty) {
+          _localCategories[uid] = _getDefaultCategories();
+        }
+        controller.add(List<CategoryItem>.from(_localCategories[uid]!));
+        if (isSupabaseAvailable) {
+          _fetchRemoteCategories(uid);
+        }
+      },
+    );
+    _categoryControllers.putIfAbsent(uid, () => []);
+    _categoryControllers[uid]!.add(controller);
+    controller.onCancel = () {
+      _categoryControllers[uid]?.remove(controller);
+    };
+    return controller.stream;
   }
 
   Future<void> _fetchRemoteCategories(String uid) async {
     try {
-      final response = await client!
+      final res = await client!
           .from('categories')
           .select()
-          .or('user_id.is.null,user_id.eq.$uid');
+          .eq('user_id', uid)
+          .timeout(const Duration(seconds: 3));
 
-      final List list = response as List;
+      final List list = res as List;
+      final defaultPresets = _getDefaultCategories();
+
       if (list.isNotEmpty) {
-        final categories = list.map((e) {
-          final iconVal = int.tryParse(e['icon']?.toString() ?? '') ?? 0xe402;
-          final colorVal =
-              int.tryParse(e['color']?.toString() ?? '') ?? 0xFF64748B;
-          return CategoryItem(
-            id: e['id']?.toString() ?? '',
-            name: e['name']?.toString() ?? '',
-            iconCodePoint: iconVal,
-            colorValue: colorVal,
-            isCustom: !(e['is_default'] as bool? ?? false),
-            isHidden: e['is_hidden'] as bool? ?? false,
-          );
-        }).toList();
-        _localCategories[uid] = categories;
-        _categoryControllers[uid]?.add(categories);
+        final parsed = list.map((c) => CategoryItem(
+          id: c['id'] as String,
+          name: c['name'] as String,
+          iconCodePoint: (c['icon_code_point'] as num).toInt(),
+          colorValue: (c['color_value'] as num).toInt(),
+          isCustom: c['is_custom'] as bool? ?? true,
+          isHidden: false,
+        )).toList();
+
+        _localCategories[uid] = [...defaultPresets, ...parsed];
+      } else {
+        _localCategories[uid] = defaultPresets;
       }
-    } catch (e) {
-      debugPrint('Supabase fetchCategories error: $e');
+      await _persistCategories();
+      _notifyCategorySubscribers(uid);
+    } catch (_) {
+      if (!_localCategories.containsKey(uid) || _localCategories[uid]!.isEmpty) {
+        _localCategories[uid] = _getDefaultCategories();
+        _notifyCategorySubscribers(uid);
+      }
     }
   }
 
   Future<void> addCategory(String uid, CategoryItem category) async {
-    _localCategories.putIfAbsent(uid, () => []);
-    _localCategories[uid]!.removeWhere((c) => c.id == category.id);
-    _localCategories[uid]!.add(category);
-    _categoryControllers[uid]?.add(List.from(_localCategories[uid]!));
+    final list = _localCategories[uid] ?? _getDefaultCategories();
+    list.add(category);
+    _localCategories[uid] = list;
+    await _persistCategories();
+    _notifyCategorySubscribers(uid);
 
     if (isSupabaseAvailable) {
       try {
-        await client!.from('categories').upsert({
+        await client!.from('categories').insert({
           'id': category.id,
           'user_id': uid,
           'name': category.name,
-          'icon': category.iconCodePoint.toString(),
-          'color': category.colorValue.toString(),
-          'is_default': !category.isCustom,
-          'is_hidden': category.isHidden,
+          'icon_code_point': category.iconCodePoint,
+          'color_value': category.colorValue,
+          'is_custom': category.isCustom,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
         });
       } catch (e) {
-        debugPrint('Supabase addCategory error: $e');
+        debugPrint('SUPABASE ADD CATEGORY ERROR: $e');
       }
     }
   }
 
-  Future<void> updateCategory(String uid, CategoryItem category) async {
-    await addCategory(uid, category);
-  }
-
   Future<void> deleteCategory(String uid, String categoryId) async {
-    _localCategories[uid]?.removeWhere((c) => c.id == categoryId);
-    _categoryControllers[uid]?.add(List.from(_localCategories[uid] ?? []));
+    final list = _localCategories[uid] ?? _getDefaultCategories();
+    list.removeWhere((c) => c.id == categoryId);
+    _localCategories[uid] = list;
+    await _persistCategories();
+    _notifyCategorySubscribers(uid);
 
     if (isSupabaseAvailable) {
       try {
         await client!.from('categories').delete().eq('id', categoryId);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> deleteUserData(String uid) async {
+    _localProfiles.remove(uid);
+    _localExpenses.remove(uid);
+    _localCategories.remove(uid);
+    await _persistProfiles();
+    await _persistExpenses();
+    await _persistCategories();
+
+    if (isSupabaseAvailable) {
+      try {
+        await client!.from('expenses').delete().eq('user_id', uid);
+        await client!.from('categories').delete().eq('user_id', uid);
+        await client!.from('profiles').delete().eq('id', uid);
       } catch (e) {
-        debugPrint('Supabase deleteCategory error: $e');
+        debugPrint('SUPABASE DELETE USER ERROR: $e');
       }
     }
   }

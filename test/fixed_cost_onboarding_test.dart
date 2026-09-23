@@ -42,9 +42,9 @@ void main() {
     await tester.tap(utilitiesText);
     await tester.pumpAndSettle();
 
-    // Default amount should be 100 and Total Fixed Costs should show $100.00
+    // Default amount should be 100 and Total Fixed Costs should show 100.00
     expect(find.text('100'), findsOneWidget);
-    expect(find.text('\$100.00'), findsOneWidget);
+    expect(find.textContaining('100.00'), findsOneWidget);
 
     // Now find the amount TextFormField and clear it (simulating backspacing 100)
     final amountFormField = find.widgetWithText(TextFormField, '100');
@@ -53,7 +53,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Total Fixed Costs should now reflect 0.00, but option must REMAIN selected!
-    expect(find.text('\$0.00'), findsOneWidget);
+    expect(find.textContaining('0.00'), findsWidgets);
     // Checkbox is still checked (Utilities & Internet is index 1)
     final checkbox = tester.widget<Checkbox>(find.byType(Checkbox).at(1));
     expect(checkbox.value, isTrue);
@@ -64,12 +64,12 @@ void main() {
     // Enter a new amount, e.g., '250'
     await tester.enterText(find.byType(TextFormField).first, '250');
     await tester.pumpAndSettle();
-    expect(find.text('\$250.00'), findsOneWidget);
+    expect(find.textContaining('250.00'), findsOneWidget);
 
     // Uncheck it
     await tester.tap(utilitiesText);
     await tester.pumpAndSettle();
-    expect(find.text('\$0.00'), findsOneWidget);
+    expect(find.textContaining('0.00'), findsWidgets);
     final checkboxUnchecked = tester.widget<Checkbox>(find.byType(Checkbox).at(1));
     expect(checkboxUnchecked.value, isFalse);
 

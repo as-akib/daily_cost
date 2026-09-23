@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../data/repositories/providers.dart';
+import '../../routing/app_router.dart';
+import '../onboarding/onboarding_wizard_screen.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -18,13 +19,29 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Future<void> _handleGuestSignIn() async {
     setState(() => _isLoading = true);
     try {
-      // Direct Supabase Anonymous Auth Call
-      final response = await Supabase.instance.client.auth.signInAnonymously();
+      final authRepo = ref.read(authRepositoryProvider);
+      final user = await authRepo.signInAnonymously();
 
-      if (response.user != null && mounted) {
-        debugPrint('Guest login successful: ${response.user!.id}');
-        // Refresh provider to trigger AppRouter navigation instantly
-        ref.invalidate(currentProfileProvider);
+      ref.invalidate(authStateProvider);
+      ref.invalidate(currentProfileProvider);
+
+      if (mounted) {
+        final profileRepo = ref.read(profileRepositoryProvider);
+        final profile = await profileRepo.getProfile(user.uid);
+
+        if (!mounted) return;
+
+        if (profile != null && profile.isOnboardingCompleted) {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const MainNavigationShell()),
+                (route) => false,
+          );
+        } else {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const OnboardingWizardScreen()),
+                (route) => false,
+          );
+        }
       }
     } catch (e) {
       debugPrint('Guest login error: $e');
@@ -45,9 +62,30 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     setState(() => _isLoading = true);
     try {
       final authRepo = ref.read(authRepositoryProvider);
-      await authRepo.signInWithGoogle();
+      final user = await authRepo.signInWithGoogle();
+
+      ref.invalidate(authStateProvider);
+      ref.invalidate(currentProfileProvider);
+
       if (mounted) {
-        ref.invalidate(currentProfileProvider);
+        // Supabase theke profile reload kora
+        final profileRepo = ref.read(profileRepositoryProvider);
+        final existingProfile = await profileRepo.getProfile(user.uid);
+
+        if (!mounted) return;
+
+        // Existing account e onboarding complete thakle direct Main Navigation Shell
+        if (existingProfile != null && existingProfile.isOnboardingCompleted) {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const MainNavigationShell()),
+                (route) => false,
+          );
+        } else {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const OnboardingWizardScreen()),
+                (route) => false,
+          );
+        }
       }
     } catch (e) {
       debugPrint('Google login error: $e');
@@ -77,14 +115,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Spacer(flex: 2),
-
               // Hero App Logo / Icon
               Center(
                 child: Container(
                   width: 96,
                   height: 96,
                   decoration: BoxDecoration(
-                    gradient: AppColors.heroGradient,
+                    color: AppColors.primary,
                     borderRadius: BorderRadius.circular(28),
                     boxShadow: [
                       BoxShadow(
@@ -103,9 +140,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 28),
-
               // Title
               Text(
                 AppConstants.appName,
@@ -118,9 +153,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       : AppColors.textPrimaryLight,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               // Tagline
               Text(
                 AppConstants.appTagline,
@@ -132,9 +165,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-
               const SizedBox(height: 24),
-
               // Value Proposition Pill
               Container(
                 padding:
@@ -165,9 +196,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ],
                 ),
               ),
-
               const Spacer(flex: 3),
-
               if (_isLoading)
                 const Center(
                   child: Padding(
@@ -185,9 +214,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                 ),
-
                 const SizedBox(height: 14),
-
                 // Continue as Guest CTA
                 OutlinedButton.icon(
                   onPressed: _handleGuestSignIn,
@@ -198,9 +225,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                 ),
               ],
-
               const SizedBox(height: 20),
-
               Text(
                 'No password required. Your data syncs seamlessly offline.',
                 textAlign: TextAlign.center,

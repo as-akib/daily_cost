@@ -43,9 +43,9 @@ void main() {
   });
 
   group('ThemeModeNotifier Tests', () {
-    test('Defaults to ThemeMode.system and updates correctly', () async {
+    test('Defaults to ThemeMode.light and updates correctly', () async {
       final notifier = ThemeModeNotifier();
-      expect(notifier.state, equals(ThemeMode.system));
+      expect(notifier.state, equals(ThemeMode.light));
 
       await notifier.setThemeMode(ThemeMode.dark);
       expect(notifier.state, equals(ThemeMode.dark));
