@@ -72,6 +72,7 @@ class AuthService {
         if (guestId != null && guestId.isNotEmpty) {
           _currentUser = AuthUser(
             uid: guestId,
+            displayName: guestId,
             isAnonymous: true,
             isGoogle: false,
           );
@@ -97,6 +98,7 @@ class AuthService {
           if (guestId != null && guestId.isNotEmpty) {
             _currentUser = AuthUser(
               uid: guestId,
+              displayName: guestId,
               isAnonymous: true,
               isGoogle: false,
             );
@@ -112,6 +114,7 @@ class AuthService {
       if (guestId != null && guestId.isNotEmpty) {
         _currentUser = AuthUser(
           uid: guestId,
+          displayName: guestId,
           isAnonymous: true,
           isGoogle: false,
         );
@@ -141,15 +144,13 @@ class AuthService {
 
   Future<AuthUser> signInAnonymously() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // Always generate a completely fresh Guest ID on new login
-    String guestUid = 'guest_${DateTime.now().millisecondsSinceEpoch}';
+    final guestUid = 'guest_${DateTime.now().millisecondsSinceEpoch}';
     await prefs.setString('dailycost_guest_uid', guestUid);
 
     _currentUser = AuthUser(
       uid: guestUid,
       email: null,
-      displayName: 'Guest User',
+      displayName: guestUid,
       isAnonymous: true,
       isGoogle: false,
     );
@@ -158,6 +159,30 @@ class AuthService {
   }
 
   Future<AuthUser> signInWithGoogle() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. Web-er jonno direct Supabase OAuth Flow (Popup/Redirect handle kore)
+    if (kIsWeb && supabaseClient != null) {
+      await prefs.remove('dailycost_guest_uid');
+      await supabaseClient!.auth.signInWithOAuth(
+        sb.OAuthProvider.google,
+        redirectTo: kDebugMode
+            ? 'http://localhost:3000'
+            : 'https://daily-cost-updated.vercel.app',
+        authScreenLaunchMode: sb.LaunchMode.externalApplication,
+      );
+
+      final session = supabaseClient!.auth.currentSession;
+      if (session != null) {
+        _currentUser = _mapSupabaseUser(session.user);
+        _authStateController.add(_currentUser);
+        return _currentUser!;
+      }
+      return _currentUser ??
+          const AuthUser(uid: 'pending_auth', isAnonymous: false, isGoogle: true);
+    }
+
+    // 2. Mobile (Android/iOS)-er jonno Google Sign In Package
     final GoogleSignIn googleSignIn = GoogleSignIn(
       serverClientId: webClientId,
       scopes: ['email', 'profile', 'openid'],
@@ -176,14 +201,10 @@ class AuthService {
     final accessToken = googleAuth.accessToken;
     final idToken = googleAuth.idToken;
 
-    if (idToken == null) {
-      throw Exception('Missing Google ID Token.');
-    }
-
     if (supabaseClient != null) {
       final res = await supabaseClient!.auth.signInWithIdToken(
         provider: sb.OAuthProvider.google,
-        idToken: idToken,
+        idToken: idToken ?? '',
         accessToken: accessToken,
       );
 
@@ -192,9 +213,7 @@ class AuthService {
         throw Exception('Supabase failed to authenticate user.');
       }
 
-      final prefs = await SharedPreferences.getInstance();
       await prefs.remove('dailycost_guest_uid');
-
       _currentUser = _mapSupabaseUser(user);
       _authStateController.add(_currentUser);
       return _currentUser!;
